@@ -109,7 +109,7 @@ export default function LoginPage() {
       {/* Right Panel - Image */}
       <div className="hidden lg:flex flex-1 bg-slate-900 items-center justify-center relative overflow-hidden">
         <img
-          src="https://static.prod-images.emergentagent.com/jobs/09de2c16-b8c5-4470-9723-4d6cd0e2875d/images/7d8c5e6137278fd0761843e7ebf630fc856022e4b3b140b4c651a69a1150f6f2.png"
+          src="https://images.unsplash.com/photo-1705956561319-2882c83ef8bb?auto=format&fit=crop&w=1600&q=80"
           alt="Industrial facility"
           className="absolute inset-0 w-full h-full object-cover opacity-40"
         />
