@@ -1,0 +1,358 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  OPERATOR
+  ACCOUNTANT
+  VIEWER
+}
+
+enum CylinderStatus {
+  IN_STOCK
+  WITH_CUSTOMER
+  IN_TRANSIT
+  DAMAGED
+  UNDER_TEST
+  CONDEMNED
+}
+
+enum OrderStatus {
+  ACTIVE
+  CLOSED
+  CANCELLED
+}
+
+enum HoldingStatus {
+  HOLDING
+  RETURNED
+  BILLED
+}
+
+enum AlertType {
+  OVERDUE_CYLINDER
+  PAYMENT_DUE
+  LOW_STOCK
+  TEST_DUE
+  CONDEMNED
+}
+
+enum AlertChannel {
+  WHATSAPP
+  SMS
+  EMAIL
+  SYSTEM
+}
+
+model User {
+  id            Int       @id @default(autoincrement())
+  username      String    @unique @db.VarChar(10)
+  fullName      String    @map("full_name")
+  passwordHash  String    @map("password_hash")
+  role          Role      @default(VIEWER)
+  isActive      Boolean   @default(true) @map("is_active")
+  lastLogin     DateTime? @map("last_login")
+  failedAttempts Int      @default(0) @map("failed_attempts")
+  lockedUntil   DateTime? @map("locked_until")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@map("users")
+}
+
+model Customer {
+  id            Int       @id @default(autoincrement())
+  code          String    @unique @db.VarChar(5)
+  title         String?   @db.VarChar(10)
+  name          String
+  address1      String?
+  address2      String?
+  city          String?
+  pin           String?   @db.VarChar(10)
+  phone         String?
+  whatsapp      String?
+  email         String?
+  gstin         String?   @db.VarChar(15)
+  contactPerson String?   @map("contact_person")
+  areaCode      String?   @map("area_code") @db.VarChar(1)
+  creditLimit   Decimal?  @default(0) @map("credit_limit") @db.Decimal(12,2)
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  area          Area?     @relation(fields: [areaCode], references: [areaCode])
+  transactions  Transaction[]
+  ecrRecords    EcrRecord[]
+  challans      Challan[]
+  holdings      CylinderHolding[]
+  alerts        Alert[]   @relation("CustomerAlerts")
+  ledgerEntries LedgerEntry[]
+  salesBook     SalesBook[]
+
+  @@map("customers")
+}
+
+model Cylinder {
+  id              Int             @id @default(autoincrement())
+  ownerCode       String          @map("owner_code") @db.VarChar(3)
+  cylinderNumber  String          @unique @map("cylinder_number")
+  particular      String?
+  capacity        Decimal?        @db.Decimal(10,2)
+  gasCode         String?         @map("gas_code") @db.VarChar(2)
+  status          CylinderStatus  @default(IN_STOCK)
+  manufactureDate DateTime?       @map("manufacture_date")
+  hydroTestDate   DateTime?       @map("hydro_test_date")
+  nextTestDue     DateTime?       @map("next_test_due")
+  fillCount       Int             @default(0) @map("fill_count")
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  gasType         GasType?        @relation(fields: [gasCode], references: [gasCode])
+  holdings        CylinderHolding[]
+  alerts          Alert[]         @relation("CylinderAlerts")
+
+  @@map("cylinders")
+}
+
+model GasType {
+  id           Int       @id @default(autoincrement())
+  gasCode      String    @unique @map("gas_code") @db.VarChar(2)
+  name         String
+  chemicalName String?   @map("chemical_name")
+  formula      String?
+  hsnCode      String?   @map("hsn_code")
+  gstRate      Decimal?  @map("gst_rate") @db.Decimal(5,2)
+  itemCode     String?   @map("item_code")
+  isActive     Boolean   @default(true) @map("is_active")
+
+  cylinders    Cylinder[]
+  rateList     RateList[]
+
+  @@map("gas_types")
+}
+
+model Area {
+  id       Int       @id @default(autoincrement())
+  areaCode String    @unique @map("area_code") @db.VarChar(1)
+  areaName String    @map("area_name")
+
+  customers Customer[]
+
+  @@map("areas")
+}
+
+model Order {
+  id           Int         @id @default(autoincrement())
+  orderNumber  String      @unique @map("order_number")
+  orderDate    DateTime    @map("order_date")
+  customerId   Int         @map("customer_id")
+  gasCode      String?     @map("gas_code") @db.VarChar(2)
+  ownerCode    String?     @map("owner_code") @db.VarChar(3)
+  quantityCum  Decimal?    @map("quantity_cum") @db.Decimal(10,2)
+  quantityCyl  Int?        @map("quantity_cyl")
+  rate         Decimal?    @db.Decimal(10,2)
+  freightRate  Decimal?    @map("freight_rate") @db.Decimal(10,2)
+  salesTaxRate Decimal?    @map("sales_tax_rate") @db.Decimal(5,2)
+  discount     Decimal?    @db.Decimal(10,2)
+  status       OrderStatus @default(ACTIVE)
+  validFrom    DateTime?   @map("valid_from")
+  validTo      DateTime?   @map("valid_to")
+  createdAt    DateTime    @default(now()) @map("created_at")
+
+  @@map("orders")
+}
+
+model RateList {
+  id              Int       @id @default(autoincrement())
+  gasCode         String    @map("gas_code") @db.VarChar(2)
+  ownerCode       String    @map("owner_code") @db.VarChar(3)
+  cylinderType    String?   @map("cylinder_type")
+  ratePerUnit     Decimal?  @map("rate_per_unit") @db.Decimal(10,2)
+  rentalFreeDays  Int?      @default(0) @map("rental_free_days")
+  rentalRate1     Decimal?  @map("rental_rate1") @db.Decimal(10,2)
+  rentalDaysFrom1 Int?      @map("rental_days_from1")
+  rentalDaysTo1   Int?      @map("rental_days_to1")
+  rentalRate2     Decimal?  @map("rental_rate2") @db.Decimal(10,2)
+  rentalDaysFrom2 Int?      @map("rental_days_from2")
+  rentalDaysTo2   Int?      @map("rental_days_to2")
+  rentalRate3     Decimal?  @map("rental_rate3") @db.Decimal(10,2)
+  rentalDaysFrom3 Int?      @map("rental_days_from3")
+  rentalDaysTo3   Int?      @map("rental_days_to3")
+  gstRate         Decimal?  @map("gst_rate") @db.Decimal(5,2)
+  effectiveFrom   DateTime? @map("effective_from")
+  effectiveTo     DateTime? @map("effective_to")
+
+  gasType         GasType   @relation(fields: [gasCode], references: [gasCode])
+
+  @@map("rate_list")
+}
+
+model Transaction {
+  id              Int       @id @default(autoincrement())
+  billNumber      String    @unique @map("bill_number")
+  billDate        DateTime  @map("bill_date")
+  customerId      Int       @map("customer_id")
+  gasCode         String?   @map("gas_code") @db.VarChar(2)
+  cylinderOwner   String?   @map("cylinder_owner") @db.VarChar(3)
+  cylinderNumber  String?   @map("cylinder_number")
+  quantityCum     Decimal?  @map("quantity_cum") @db.Decimal(10,2)
+  orderNumber     String?   @map("order_number")
+  transactionCode String?   @map("transaction_code")
+  reasonCode      String?   @map("reason_code")
+  fullOrEmpty     String?   @map("full_or_empty") @db.VarChar(1)
+  rentAmount      Decimal?  @map("rent_amount") @db.Decimal(12,2)
+  operatorId      Int?      @map("operator_id")
+  whatsappSent    Boolean   @default(false) @map("whatsapp_sent")
+  pdfPath         String?   @map("pdf_path")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  holdings        CylinderHolding[]
+
+  @@map("transactions")
+}
+
+model EcrRecord {
+  id              Int       @id @default(autoincrement())
+  ecrNumber       String    @unique @map("ecr_number")
+  ecrDate         DateTime  @map("ecr_date")
+  customerId      Int       @map("customer_id")
+  gasCode         String?   @map("gas_code") @db.VarChar(2)
+  cylinderOwner   String?   @map("cylinder_owner") @db.VarChar(3)
+  cylinderNumber  String?   @map("cylinder_number")
+  issueNumber     String?   @map("issue_number")
+  issueDate       DateTime? @map("issue_date")
+  holdDays        Int?      @map("hold_days")
+  rentAmount      Decimal?  @map("rent_amount") @db.Decimal(12,2)
+  challanNumber   String?   @map("challan_number")
+  challanDate     DateTime? @map("challan_date")
+  vehicleNumber   String?   @map("vehicle_number")
+  operatorId      Int?      @map("operator_id")
+  quantityCum     Decimal?  @map("quantity_cum") @db.Decimal(10,2)
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  customer        Customer  @relation(fields: [customerId], references: [id])
+
+  @@map("ecr_records")
+}
+
+model CylinderHolding {
+  id              Int            @id @default(autoincrement())
+  cylinderId      Int            @map("cylinder_id")
+  customerId      Int            @map("customer_id")
+  transactionId   Int?           @map("transaction_id")
+  issuedAt        DateTime       @map("issued_at")
+  returnedAt      DateTime?      @map("returned_at")
+  holdDays        Int?           @map("hold_days")
+  rentAmount      Decimal?       @map("rent_amount") @db.Decimal(12,2)
+  isOverdue       Boolean        @default(false) @map("is_overdue")
+  alertSentAt     DateTime?      @map("alert_sent_at")
+  status          HoldingStatus  @default(HOLDING)
+
+  cylinder        Cylinder       @relation(fields: [cylinderId], references: [id])
+  customer        Customer       @relation(fields: [customerId], references: [id])
+  transaction     Transaction?   @relation(fields: [transactionId], references: [id])
+
+  @@map("cylinder_holdings")
+}
+
+model Challan {
+  id              Int       @id @default(autoincrement())
+  challanNumber   String    @unique @map("challan_number")
+  challanDate     DateTime  @map("challan_date")
+  customerId      Int       @map("customer_id")
+  cylinderOwner   String?   @map("cylinder_owner") @db.VarChar(3)
+  cylindersCount  Int?      @map("cylinders_count")
+  quantityCum     Decimal?  @map("quantity_cum") @db.Decimal(10,2)
+  vehicleNumber   String?   @map("vehicle_number")
+  transactionType String?   @map("transaction_type")
+  linkedBillId    Int?      @map("linked_bill_id")
+  operatorId      Int?      @map("operator_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  customer        Customer  @relation(fields: [customerId], references: [id])
+
+  @@map("challans")
+}
+
+model LedgerEntry {
+  id              Int       @id @default(autoincrement())
+  voucherNumber   String    @unique @map("voucher_number")
+  voucherDate     DateTime  @map("voucher_date")
+  partyCode       String?   @map("party_code") @db.VarChar(5)
+  particular      String?
+  narration       String?
+  debitAmount     Decimal?  @map("debit_amount") @db.Decimal(12,2)
+  creditAmount    Decimal?  @map("credit_amount") @db.Decimal(12,2)
+  chequeNumber    String?   @map("cheque_number")
+  transactionType String?   @map("transaction_type")
+  voucherRef      String?   @map("voucher_ref")
+  operatorId      Int?      @map("operator_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  customer        Customer? @relation(fields: [partyCode], references: [code])
+
+  @@map("ledger_entries")
+}
+
+model SalesBook {
+  id              Int       @id @default(autoincrement())
+  voucherNumber   String    @unique @map("voucher_number")
+  voucherDate     DateTime  @map("voucher_date")
+  partyCode       String?   @map("party_code") @db.VarChar(5)
+  documentNumber  String?   @map("document_number")
+  quantityIssued  Decimal?  @map("quantity_issued") @db.Decimal(10,2)
+  unit            String?
+  rate            Decimal?  @db.Decimal(10,2)
+  gstCode         String?   @map("gst_code")
+  subtotal        Decimal?  @db.Decimal(12,2)
+  gstAmount       Decimal?  @map("gst_amount") @db.Decimal(12,2)
+  totalAmount     Decimal?  @map("total_amount") @db.Decimal(12,2)
+  transactionCode String?   @map("transaction_code")
+  operatorId      Int?      @map("operator_id")
+  billNumber      String?   @map("bill_number")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  customer        Customer? @relation(fields: [partyCode], references: [code])
+
+  @@map("sales_book")
+}
+
+model GstRate {
+  id       Int     @id @default(autoincrement())
+  gstCode  String  @unique @map("gst_code")
+  gstName  String  @map("gst_name")
+  rate     Decimal @db.Decimal(5,2)
+  isActive Boolean @default(true) @map("is_active")
+
+  @@map("gst_rates")
+}
+
+model Alert {
+  id          Int          @id @default(autoincrement())
+  type        AlertType
+  customerId  Int?         @map("customer_id")
+  cylinderId  Int?         @map("cylinder_id")
+  message     String
+  sentVia     AlertChannel @map("sent_via")
+  sentAt      DateTime     @default(now()) @map("sent_at")
+  isResolved  Boolean      @default(false) @map("is_resolved")
+  resolvedAt  DateTime?    @map("resolved_at")
+
+  customer    Customer?    @relation("CustomerAlerts", fields: [customerId], references: [id])
+  cylinder    Cylinder?    @relation("CylinderAlerts", fields: [cylinderId], references: [id])
+
+  @@map("alerts")
+}
+
+model CompanySetting {
+  id       Int    @id @default(autoincrement())
+  key      String @unique
+  value    String
+
+  @@map("company_settings")
+}
