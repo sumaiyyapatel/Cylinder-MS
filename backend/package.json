@@ -3,10 +3,12 @@
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
-    "migrate": "npx prisma migrate deploy",
-    "seed": "node prisma/seed.js"
+    "start": "set DATABASE_URL=file:./dev.db&& node server.js",
+    "dev": "set DATABASE_URL=file:./dev.db&& node --watch server.js",
+    "migrate": "set DATABASE_URL=file:./dev.db&& node ./node_modules/prisma/build/index.js db push --schema ./prisma/schema.prisma",
+    "prisma:generate": "set DATABASE_URL=file:./dev.db&& node ./node_modules/prisma/build/index.js generate --schema ./prisma/schema.prisma",
+    "prisma:push": "set DATABASE_URL=file:./dev.db&& node ./node_modules/prisma/build/index.js db push --schema ./prisma/schema.prisma",
+    "seed": "set DATABASE_URL=file:./dev.db&& node prisma/seed.js"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",

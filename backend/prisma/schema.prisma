@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -53,7 +53,7 @@ enum AlertChannel {
 
 model User {
   id            Int       @id @default(autoincrement())
-  username      String    @unique @db.VarChar(10)
+  username      String    @unique
   fullName      String    @map("full_name")
   passwordHash  String    @map("password_hash")
   role          Role      @default(VIEWER)
@@ -68,20 +68,20 @@ model User {
 
 model Customer {
   id            Int       @id @default(autoincrement())
-  code          String    @unique @db.VarChar(5)
-  title         String?   @db.VarChar(10)
+  code          String    @unique
+  title         String?
   name          String
   address1      String?
   address2      String?
   city          String?
-  pin           String?   @db.VarChar(10)
+  pin           String?
   phone         String?
   whatsapp      String?
   email         String?
-  gstin         String?   @db.VarChar(15)
+  gstin         String?
   contactPerson String?   @map("contact_person")
-  areaCode      String?   @map("area_code") @db.VarChar(1)
-  creditLimit   Decimal?  @default(0) @map("credit_limit") @db.Decimal(12,2)
+  areaCode      String?   @map("area_code")
+  creditLimit   Decimal?  @default(0) @map("credit_limit")
   isActive      Boolean   @default(true) @map("is_active")
   createdAt     DateTime  @default(now()) @map("created_at")
 
@@ -99,11 +99,11 @@ model Customer {
 
 model Cylinder {
   id              Int             @id @default(autoincrement())
-  ownerCode       String          @map("owner_code") @db.VarChar(3)
+  ownerCode       String          @map("owner_code")
   cylinderNumber  String          @unique @map("cylinder_number")
   particular      String?
-  capacity        Decimal?        @db.Decimal(10,2)
-  gasCode         String?         @map("gas_code") @db.VarChar(2)
+  capacity        Decimal?
+  gasCode         String?         @map("gas_code")
   status          CylinderStatus  @default(IN_STOCK)
   manufactureDate DateTime?       @map("manufacture_date")
   hydroTestDate   DateTime?       @map("hydro_test_date")
@@ -120,12 +120,12 @@ model Cylinder {
 
 model GasType {
   id           Int       @id @default(autoincrement())
-  gasCode      String    @unique @map("gas_code") @db.VarChar(2)
+  gasCode      String    @unique @map("gas_code")
   name         String
   chemicalName String?   @map("chemical_name")
   formula      String?
   hsnCode      String?   @map("hsn_code")
-  gstRate      Decimal?  @map("gst_rate") @db.Decimal(5,2)
+  gstRate      Decimal?  @map("gst_rate")
   itemCode     String?   @map("item_code")
   isActive     Boolean   @default(true) @map("is_active")
 
@@ -137,7 +137,7 @@ model GasType {
 
 model Area {
   id       Int       @id @default(autoincrement())
-  areaCode String    @unique @map("area_code") @db.VarChar(1)
+  areaCode String    @unique @map("area_code")
   areaName String    @map("area_name")
 
   customers Customer[]
@@ -150,14 +150,14 @@ model Order {
   orderNumber  String      @unique @map("order_number")
   orderDate    DateTime    @map("order_date")
   customerId   Int         @map("customer_id")
-  gasCode      String?     @map("gas_code") @db.VarChar(2)
-  ownerCode    String?     @map("owner_code") @db.VarChar(3)
-  quantityCum  Decimal?    @map("quantity_cum") @db.Decimal(10,2)
+  gasCode      String?     @map("gas_code")
+  ownerCode    String?     @map("owner_code")
+  quantityCum  Decimal?    @map("quantity_cum")
   quantityCyl  Int?        @map("quantity_cyl")
-  rate         Decimal?    @db.Decimal(10,2)
-  freightRate  Decimal?    @map("freight_rate") @db.Decimal(10,2)
-  salesTaxRate Decimal?    @map("sales_tax_rate") @db.Decimal(5,2)
-  discount     Decimal?    @db.Decimal(10,2)
+  rate         Decimal?
+  freightRate  Decimal?    @map("freight_rate")
+  salesTaxRate Decimal?    @map("sales_tax_rate")
+  discount     Decimal?
   status       OrderStatus @default(ACTIVE)
   validFrom    DateTime?   @map("valid_from")
   validTo      DateTime?   @map("valid_to")
@@ -168,21 +168,21 @@ model Order {
 
 model RateList {
   id              Int       @id @default(autoincrement())
-  gasCode         String    @map("gas_code") @db.VarChar(2)
-  ownerCode       String    @map("owner_code") @db.VarChar(3)
+  gasCode         String    @map("gas_code")
+  ownerCode       String    @map("owner_code")
   cylinderType    String?   @map("cylinder_type")
-  ratePerUnit     Decimal?  @map("rate_per_unit") @db.Decimal(10,2)
+  ratePerUnit     Decimal?  @map("rate_per_unit")
   rentalFreeDays  Int?      @default(0) @map("rental_free_days")
-  rentalRate1     Decimal?  @map("rental_rate1") @db.Decimal(10,2)
+  rentalRate1     Decimal?  @map("rental_rate1")
   rentalDaysFrom1 Int?      @map("rental_days_from1")
   rentalDaysTo1   Int?      @map("rental_days_to1")
-  rentalRate2     Decimal?  @map("rental_rate2") @db.Decimal(10,2)
+  rentalRate2     Decimal?  @map("rental_rate2")
   rentalDaysFrom2 Int?      @map("rental_days_from2")
   rentalDaysTo2   Int?      @map("rental_days_to2")
-  rentalRate3     Decimal?  @map("rental_rate3") @db.Decimal(10,2)
+  rentalRate3     Decimal?  @map("rental_rate3")
   rentalDaysFrom3 Int?      @map("rental_days_from3")
   rentalDaysTo3   Int?      @map("rental_days_to3")
-  gstRate         Decimal?  @map("gst_rate") @db.Decimal(5,2)
+  gstRate         Decimal?  @map("gst_rate")
   effectiveFrom   DateTime? @map("effective_from")
   effectiveTo     DateTime? @map("effective_to")
 
@@ -196,15 +196,15 @@ model Transaction {
   billNumber      String    @unique @map("bill_number")
   billDate        DateTime  @map("bill_date")
   customerId      Int       @map("customer_id")
-  gasCode         String?   @map("gas_code") @db.VarChar(2)
-  cylinderOwner   String?   @map("cylinder_owner") @db.VarChar(3)
+  gasCode         String?   @map("gas_code")
+  cylinderOwner   String?   @map("cylinder_owner")
   cylinderNumber  String?   @map("cylinder_number")
-  quantityCum     Decimal?  @map("quantity_cum") @db.Decimal(10,2)
+  quantityCum     Decimal?  @map("quantity_cum")
   orderNumber     String?   @map("order_number")
   transactionCode String?   @map("transaction_code")
   reasonCode      String?   @map("reason_code")
-  fullOrEmpty     String?   @map("full_or_empty") @db.VarChar(1)
-  rentAmount      Decimal?  @map("rent_amount") @db.Decimal(12,2)
+  fullOrEmpty     String?   @map("full_or_empty")
+  rentAmount      Decimal?  @map("rent_amount")
   operatorId      Int?      @map("operator_id")
   whatsappSent    Boolean   @default(false) @map("whatsapp_sent")
   pdfPath         String?   @map("pdf_path")
@@ -221,18 +221,18 @@ model EcrRecord {
   ecrNumber       String    @unique @map("ecr_number")
   ecrDate         DateTime  @map("ecr_date")
   customerId      Int       @map("customer_id")
-  gasCode         String?   @map("gas_code") @db.VarChar(2)
-  cylinderOwner   String?   @map("cylinder_owner") @db.VarChar(3)
+  gasCode         String?   @map("gas_code")
+  cylinderOwner   String?   @map("cylinder_owner")
   cylinderNumber  String?   @map("cylinder_number")
   issueNumber     String?   @map("issue_number")
   issueDate       DateTime? @map("issue_date")
   holdDays        Int?      @map("hold_days")
-  rentAmount      Decimal?  @map("rent_amount") @db.Decimal(12,2)
+  rentAmount      Decimal?  @map("rent_amount")
   challanNumber   String?   @map("challan_number")
   challanDate     DateTime? @map("challan_date")
   vehicleNumber   String?   @map("vehicle_number")
   operatorId      Int?      @map("operator_id")
-  quantityCum     Decimal?  @map("quantity_cum") @db.Decimal(10,2)
+  quantityCum     Decimal?  @map("quantity_cum")
   createdAt       DateTime  @default(now()) @map("created_at")
 
   customer        Customer  @relation(fields: [customerId], references: [id])
@@ -248,7 +248,7 @@ model CylinderHolding {
   issuedAt        DateTime       @map("issued_at")
   returnedAt      DateTime?      @map("returned_at")
   holdDays        Int?           @map("hold_days")
-  rentAmount      Decimal?       @map("rent_amount") @db.Decimal(12,2)
+  rentAmount      Decimal?       @map("rent_amount")
   isOverdue       Boolean        @default(false) @map("is_overdue")
   alertSentAt     DateTime?      @map("alert_sent_at")
   status          HoldingStatus  @default(HOLDING)
@@ -265,9 +265,9 @@ model Challan {
   challanNumber   String    @unique @map("challan_number")
   challanDate     DateTime  @map("challan_date")
   customerId      Int       @map("customer_id")
-  cylinderOwner   String?   @map("cylinder_owner") @db.VarChar(3)
+  cylinderOwner   String?   @map("cylinder_owner")
   cylindersCount  Int?      @map("cylinders_count")
-  quantityCum     Decimal?  @map("quantity_cum") @db.Decimal(10,2)
+  quantityCum     Decimal?  @map("quantity_cum")
   vehicleNumber   String?   @map("vehicle_number")
   transactionType String?   @map("transaction_type")
   linkedBillId    Int?      @map("linked_bill_id")
@@ -283,11 +283,11 @@ model LedgerEntry {
   id              Int       @id @default(autoincrement())
   voucherNumber   String    @unique @map("voucher_number")
   voucherDate     DateTime  @map("voucher_date")
-  partyCode       String?   @map("party_code") @db.VarChar(5)
+  partyCode       String?   @map("party_code")
   particular      String?
   narration       String?
-  debitAmount     Decimal?  @map("debit_amount") @db.Decimal(12,2)
-  creditAmount    Decimal?  @map("credit_amount") @db.Decimal(12,2)
+  debitAmount     Decimal?  @map("debit_amount")
+  creditAmount    Decimal?  @map("credit_amount")
   chequeNumber    String?   @map("cheque_number")
   transactionType String?   @map("transaction_type")
   voucherRef      String?   @map("voucher_ref")
@@ -303,15 +303,15 @@ model SalesBook {
   id              Int       @id @default(autoincrement())
   voucherNumber   String    @unique @map("voucher_number")
   voucherDate     DateTime  @map("voucher_date")
-  partyCode       String?   @map("party_code") @db.VarChar(5)
+  partyCode       String?   @map("party_code")
   documentNumber  String?   @map("document_number")
-  quantityIssued  Decimal?  @map("quantity_issued") @db.Decimal(10,2)
+  quantityIssued  Decimal?  @map("quantity_issued")
   unit            String?
-  rate            Decimal?  @db.Decimal(10,2)
+  rate            Decimal?
   gstCode         String?   @map("gst_code")
-  subtotal        Decimal?  @db.Decimal(12,2)
-  gstAmount       Decimal?  @map("gst_amount") @db.Decimal(12,2)
-  totalAmount     Decimal?  @map("total_amount") @db.Decimal(12,2)
+  subtotal        Decimal?
+  gstAmount       Decimal?  @map("gst_amount")
+  totalAmount     Decimal?  @map("total_amount")
   transactionCode String?   @map("transaction_code")
   operatorId      Int?      @map("operator_id")
   billNumber      String?   @map("bill_number")
@@ -326,7 +326,7 @@ model GstRate {
   id       Int     @id @default(autoincrement())
   gstCode  String  @unique @map("gst_code")
   gstName  String  @map("gst_name")
-  rate     Decimal @db.Decimal(5,2)
+  rate     Decimal
   isActive Boolean @default(true) @map("is_active")
 
   @@map("gst_rates")

@@ -1,5 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const { Prisma } = require('@prisma/client');
 const prisma = require('../lib/prisma');
 const { createAccessToken, authenticate } = require('../lib/auth');
 
@@ -62,6 +63,13 @@ router.post('/login', async (req, res) => {
     });
   } catch (err) {
     console.error('Login error:', err);
+
+    if (err instanceof Prisma.PrismaClientInitializationError) {
+      return res.status(503).json({
+        error: 'Database unavailable. Please ensure PostgreSQL is running and DATABASE_URL is correct.',
+      });
+    }
+
     res.status(500).json({ error: 'Server error' });
   }
 });
