@@ -1,0 +1,15 @@
+{
+  "name": "cylinder-ms-workspace",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "install:all": "npm --prefix backend install; npm --prefix frontend install",
+    "db:setup": "npm --prefix backend run prisma:generate; npm --prefix backend run prisma:push; npm --prefix backend run seed",
+    "start:backend": "npm --prefix backend start",
+    "start:frontend": "npm --prefix frontend start",
+    "start": "node ./node_modules/concurrently/dist/bin/concurrently.js -n BACKEND,FRONTEND \"npm run start:backend\" \"set PORT=3001&& npm run start:frontend\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
