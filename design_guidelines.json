@@ -1,0 +1,158 @@
+{
+  "theme_and_archetype": {
+    "domain": "Enterprise ERP / Industrial Logistics",
+    "theme": "LIGHT",
+    "archetype": "Archetype 4 (Swiss & High-Contrast)",
+    "reasoning": "Fits the dense data requirements of a Gas Cylinder Management System. Focuses on clarity, high contrast for legacy FoxPro users transitioning to web, and objective functional design without decorative clutter."
+  },
+  "typography": {
+    "headings": {
+      "font_family": "IBM Plex Sans",
+      "weights": [
+        "600",
+        "700"
+      ],
+      "usage": "Used for all page titles, card headers, and stat numbers. Avoids standard SaaS fonts to create authoritative industrial tension.",
+      "scales": {
+        "h1": "text-2xl sm:text-3xl font-bold tracking-tight",
+        "h2": "text-xl sm:text-2xl font-semibold tracking-tight",
+        "h3": "text-lg font-semibold",
+        "h4": "text-base font-semibold"
+      }
+    },
+    "body": {
+      "font_family": "Inter",
+      "weights": [
+        "400",
+        "500"
+      ],
+      "usage": "Used for tables, forms, and general UI as explicitly requested for high legibility.",
+      "scales": {
+        "base": "text-sm leading-snug",
+        "small": "text-xs text-slate-500 uppercase tracking-wider font-medium"
+      }
+    }
+  },
+  "colors": {
+    "backgrounds": {
+      "page": "bg-slate-50",
+      "card": "bg-white",
+      "sidebar": "bg-slate-900",
+      "topbar": "bg-white"
+    },
+    "primary": {
+      "base": "blue-600",
+      "hex": "#2563EB",
+      "hover": "blue-700",
+      "active": "blue-800",
+      "muted": "blue-50"
+    },
+    "status": {
+      "success": "green-600",
+      "success_bg": "green-50",
+      "warning": "amber-600",
+      "warning_bg": "amber-50",
+      "danger": "red-600",
+      "danger_bg": "red-50",
+      "neutral": "slate-500",
+      "neutral_bg": "slate-100"
+    },
+    "text": {
+      "primary": "slate-900",
+      "secondary": "slate-600",
+      "muted": "slate-400",
+      "inverse": "white"
+    },
+    "borders": {
+      "default": "slate-200",
+      "focus": "blue-500"
+    }
+  },
+  "components": {
+    "cards": {
+      "style": "bg-white border border-slate-200 shadow-sm rounded-md",
+      "padding": "p-4 sm:p-6",
+      "header": "pb-4 mb-4 border-b border-slate-100"
+    },
+    "tables": {
+      "style": "w-full text-sm text-left border-collapse",
+      "header_row": "bg-slate-50 border-y border-slate-200 text-slate-600 font-semibold text-xs uppercase tracking-wider",
+      "row": "border-b border-slate-100 hover:bg-slate-50 transition-colors",
+      "cell_padding": "px-3 py-2",
+      "density": "compact",
+      "pagination": "flex items-center justify-between px-3 py-2 border-t border-slate-200 bg-white"
+    },
+    "forms": {
+      "input_style": "h-9 w-full rounded-md border border-slate-300 bg-white px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500",
+      "label_style": "block text-sm font-medium text-slate-700 mb-1",
+      "density": "compact",
+      "grouping": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+    },
+    "buttons": {
+      "primary": "h-9 px-4 py-2 inline-flex items-center justify-center rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition-colors",
+      "secondary": "h-9 px-4 py-2 inline-flex items-center justify-center rounded-md text-sm font-medium bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 transition-colors",
+      "danger": "h-9 px-4 py-2 inline-flex items-center justify-center rounded-md text-sm font-medium bg-red-600 text-white hover:bg-red-700 transition-colors"
+    },
+    "badges": {
+      "style": "inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold ring-1 ring-inset",
+      "success": "bg-green-50 text-green-700 ring-green-600/20",
+      "danger": "bg-red-50 text-red-700 ring-red-600/10",
+      "warning": "bg-amber-50 text-amber-700 ring-amber-600/20",
+      "neutral": "bg-slate-50 text-slate-600 ring-slate-500/10"
+    }
+  },
+  "spacing_and_layout": {
+    "strategy": "Control Room Grid (Dense & Functional)",
+    "sidebar": "fixed left-0 top-0 h-screen w-64 bg-slate-900 text-slate-300 z-40 flex flex-col",
+    "topbar": "fixed top-0 right-0 left-64 h-14 bg-white border-b border-slate-200 z-30 flex items-center justify-between px-6 shadow-sm",
+    "main_content": "pt-14 pl-64 min-h-screen bg-slate-50",
+    "page_container": "p-6 max-w-[1600px] mx-auto",
+    "dashboard_grid": {
+      "stats_row": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6",
+      "charts_row": "grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6",
+      "chart_span": "col-span-1 lg:col-span-2",
+      "pie_span": "col-span-1"
+    }
+  },
+  "motion": {
+    "strategy": "Minimalist functional feedback",
+    "hover": "transition-colors duration-150 ease-in-out",
+    "focus": "focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-blue-500",
+    "entrance": "animate-in fade-in slide-in-from-bottom-2 duration-300",
+    "accessibility": "respect prefers-reduced-motion for all transitions"
+  },
+  "icons_and_assets": {
+    "library": "lucide-react",
+    "sizing": "w-4 h-4 for inline UI, w-5 h-5 for sidebar, w-8 h-8 for stat cards",
+    "stroke_width": "2",
+    "style": "clean, line-based, unopinionated"
+  },
+  "image_urls": {
+    "company_logo": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/09de2c16-b8c5-4470-9723-4d6cd0e2875d/images/02d225137aef3572dcc0dd191d085ebb5d7e11892794fe8a232d1dab676bbf79.png",
+      "description": "Modern clean geometric logo for the industrial gas company",
+      "usage": "Sidebar top header, login page brand logo"
+    },
+    "login_background": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/09de2c16-b8c5-4470-9723-4d6cd0e2875d/images/7d8c5e6137278fd0761843e7ebf630fc856022e4b3b140b4c651a69a1150f6f2.png",
+      "description": "Abstract architectural photograph of an industrial facility",
+      "usage": "Split screen login page background image (right half)"
+    },
+    "empty_state_1": {
+      "url": "https://images.unsplash.com/photo-1705956561319-2882c83ef8bb?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwyfHxpbmR1c3RyaWFsJTIwZ2FzJTIwY3lsaW5kZXIlMjBmYWN0b3J5fGVufDB8fHx8MTc3NTU0ODEzMHww&ixlib=rb-4.1.0&q=85",
+      "description": "Red industrial cylinders",
+      "usage": "Use selectively for empty states or dashboard banners if required, otherwise keep UI data-focused"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Use Shadcn UI components for Tables, Forms, Select, Dialogs, Cards, Badges, and Recharts/Shadcn Charts for the Dashboard.",
+    "Data Density is Critical: Override Shadcn default paddings on tables and inputs. Use compact heights (h-8 or h-9) and tight cell paddings (px-3 py-2) to fit more data on screen.",
+    "Form constraints: Use grid layouts for Master Entry and Transaction forms. Never use single column full-width inputs for dense data.",
+    "Ensure all monetary amounts use Indian formatting (INR ₹) and dates use DD/MM/YYYY format across all tables and forms.",
+    "DO NOT use Inter for Headings. Use IBM Plex Sans for H1, H2, H3, and Stat Numbers. Use Inter ONLY for body, tables, and form inputs as requested by user.",
+    "Strictly adhere to the color palette: Avoid pastel 'startup' colors. Keep borders sharp (max rounded-md). Use the exact status colors provided for cylinder statuses (Full=Success/Green, Empty=Warning/Amber, Defective=Danger/Red).",
+    "Must add `data-testid` to all interactive elements, following the format role-based kebab-case (e.g., `login-submit-button`, `nav-link-dashboard`).",
+    "Sidebar must be fixed left, dark theme (Slate 900), and topbar fixed top, light theme (White).",
+    "DO NOT implement custom HTML advanced interactions. Use Shadcn components for Select, DatePicker, and Menus."
+  ]
+}
