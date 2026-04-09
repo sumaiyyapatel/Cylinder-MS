@@ -30,12 +30,25 @@ app.use(cors({
 app.use(express.json());
 
 // Health check
+app.get('/', (req, res) => {
+  res.json({
+    message: 'Gas Cylinder Management System API',
+    status: 'running',
+    docs: '/api/',
+  });
+});
+
 app.get('/api/', (req, res) => {
   res.json({ message: 'Gas Cylinder Management System API', status: 'running' });
 });
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Chrome DevTools sometimes probes this path on local servers.
+app.get('/.well-known/appspecific/com.chrome.devtools.json', (req, res) => {
+  res.status(204).end();
 });
 
 // Routes

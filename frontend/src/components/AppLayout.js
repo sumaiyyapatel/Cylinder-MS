@@ -60,7 +60,17 @@ export default function AppLayout() {
 
   useEffect(() => {
     api.get("/settings").then(({ data }) => {
-      if (data.company_name) setCompanyName(data.company_name);
+      if (Array.isArray(data)) {
+        const settingsObj = data.reduce((acc, curr) => {
+          acc[curr.key] = curr.value;
+          return acc;
+        }, {});
+        if (settingsObj.company_name) setCompanyName(settingsObj.company_name);
+        localStorage.setItem("companySettings", JSON.stringify(data)); // Save as array for compatibility
+      } else {
+        if (data.company_name) setCompanyName(data.company_name);
+        localStorage.setItem("companySettings", JSON.stringify(data));
+      }
     }).catch(() => {});
   }, []);
 

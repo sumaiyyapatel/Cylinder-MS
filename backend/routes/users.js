@@ -5,6 +5,25 @@ const { authenticate, authorize } = require('../lib/auth');
 
 const router = express.Router();
 
+function validatePassword(password) {
+  if (!password || password.length < 8) {
+    return 'Password must be at least 8 characters long';
+  }
+  if (!/[A-Z]/.test(password)) {
+    return 'Password must contain at least one uppercase letter';
+  }
+  if (!/[a-z]/.test(password)) {
+    return 'Password must contain at least one lowercase letter';
+  }
+  if (!/[0-9]/.test(password)) {
+    return 'Password must contain at least one number';
+  }
+  if (!/[^A-Za-z0-9]/.test(password)) {
+    return 'Password must contain at least one special character';
+  }
+  return null;
+}
+
 // GET /api/users
 router.get('/', authenticate, authorize('ADMIN'), async (req, res) => {
   try {
@@ -25,6 +44,12 @@ router.post('/', authenticate, authorize('ADMIN'), async (req, res) => {
     if (!username || !password || !fullName) {
       return res.status(400).json({ error: 'Username, full name and password required' });
     }
+
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      return res.status(400).json({ error: passwordError });
+    }
+
     const hash = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
       data: { username: username.toLowerCase(), fullName, passwordHash: hash, role: role || 'VIEWER' },
@@ -44,7 +69,13 @@ router.put('/:id', authenticate, authorize('ADMIN'), async (req, res) => {
     if (fullName !== undefined) data.fullName = fullName;
     if (role !== undefined) data.role = role;
     if (isActive !== undefined) data.isActive = isActive;
-    if (password) data.passwordHash = await bcrypt.hash(password, 10);
+    if (password) {
+      const passwordError = validatePassword(password);
+      if (passwordError) {
+        return res.status(400).json({ error: passwordError });
+      }
+      data.passwordHash = await bcrypt.hash(password, 10);
+    }
     
     const user = await prisma.user.update({
       where: { id: parseInt(req.params.id) },

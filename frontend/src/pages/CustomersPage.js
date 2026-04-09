@@ -15,13 +15,15 @@ export default function CustomersPage() {
   const { hasRole } = useAuth();
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const limit = 25;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ code: "", name: "", title: "", address1: "", city: "", pin: "", phone: "", email: "", gstin: "", contactPerson: "", areaCode: "" });
 
   const { data, isLoading } = useQuery({
-    queryKey: ["customers", search],
-    queryFn: () => api.get("/customers", { params: { search, limit: 100 } }).then((r) => r.data),
+    queryKey: ["customers", search, page],
+    queryFn: () => api.get("/customers", { params: { search, page, limit } }).then((r) => r.data),
   });
 
   const { data: areas } = useQuery({
@@ -47,6 +49,25 @@ export default function CustomersPage() {
   const handleSave = (e) => {
     e.preventDefault();
     if (!form.code || !form.name) return toast.error("Code and name are required");
+
+    const gstin = form.gstin.trim();
+    const email = form.email.trim();
+    const phone = form.phone.trim();
+    const pin = form.pin.trim();
+
+    if (gstin && !/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(gstin)) {
+      return toast.error("Invalid GSTIN format");
+    }
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return toast.error("Invalid email format");
+    }
+    if (phone && !/^\d{10}$/.test(phone.replace(/\D/g, ""))) {
+      return toast.error("Phone must be 10 digits");
+    }
+    if (pin && !/^\d{6}$/.test(pin)) {
+      return toast.error("PIN must be 6 digits");
+    }
+
     const payload = { ...form };
     if (!payload.areaCode) delete payload.areaCode;
     saveMut.mutate(payload);
@@ -65,7 +86,16 @@ export default function CustomersPage() {
 
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
-        <Input data-testid="customer-search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name, code, city..." className="pl-9 h-9" />
+        <Input
+          data-testid="customer-search"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
+          placeholder="Search by name, code, city..."
+          className="pl-9 h-9"
+        />
       </div>
 
       <div className="bg-white rounded-md border border-slate-200 shadow-sm overflow-hidden">
@@ -114,7 +144,31 @@ export default function CustomersPage() {
         </div>
         {data?.total > 0 && (
           <div className="flex items-center justify-between px-3 py-2 border-t border-slate-200 bg-white text-xs text-slate-500">
-            <span>Showing {data.data.length} of {data.total} customers</span>
+            <span>
+              Page {data.page || 1} of {data.totalPages || 1} - Showing {data.data.length} of {data.total} customers
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={(data.page || 1) <= 1}
+              >
+                Prev
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs"
+                onClick={() => setPage((p) => p + 1)}
+                disabled={(data.page || 1) >= (data.totalPages || 1)}
+              >
+                Next
+              </Button>
+            </div>
           </div>
         )}
       </div>
@@ -154,11 +208,11 @@ export default function CustomersPage() {
             </div>
             <div>
               <Label className="text-sm font-medium text-slate-700">PIN</Label>
-              <Input value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value })} maxLength={6} className="h-9 mt-1" />
+              <Input value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value.replace(/\D/g, "") })} maxLength={6} className="h-9 mt-1" />
             </div>
             <div>
               <Label className="text-sm font-medium text-slate-700">Phone</Label>
-              <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="h-9 mt-1" />
+              <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value.replace(/\D/g, "") })} maxLength={10} className="h-9 mt-1" />
             </div>
             <div>
               <Label className="text-sm font-medium text-slate-700">Email</Label>

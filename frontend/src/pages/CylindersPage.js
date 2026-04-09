@@ -18,13 +18,15 @@ export default function CylindersPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const limit = 50;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ ownerCode: "COC", cylinderNumber: "", particular: "", capacity: "", gasCode: "", status: "IN_STOCK" });
 
   const { data, isLoading } = useQuery({
-    queryKey: ["cylinders", search, statusFilter],
-    queryFn: () => api.get("/cylinders", { params: { search, status: statusFilter || undefined, limit: 100 } }).then((r) => r.data),
+    queryKey: ["cylinders", search, statusFilter, page],
+    queryFn: () => api.get("/cylinders", { params: { search, status: statusFilter || undefined, page, limit } }).then((r) => r.data),
   });
 
   const { data: gasTypes } = useQuery({
@@ -70,9 +72,24 @@ export default function CylindersPage() {
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative max-w-sm">
           <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
-          <Input data-testid="cylinder-search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." className="pl-9 h-9 w-64" />
+          <Input
+            data-testid="cylinder-search"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Search..."
+            className="pl-9 h-9 w-64"
+          />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <Select
+          value={statusFilter || "all"}
+          onValueChange={(v) => {
+            setStatusFilter(v === "all" ? "" : v);
+            setPage(1);
+          }}
+        >
           <SelectTrigger className="h-9 w-48" data-testid="cylinder-status-filter"><SelectValue placeholder="All Statuses" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Statuses</SelectItem>
@@ -129,6 +146,35 @@ export default function CylindersPage() {
             </tbody>
           </table>
         </div>
+        {data?.total > 0 && (
+          <div className="flex items-center justify-between px-3 py-2 border-t border-slate-200 bg-white text-xs text-slate-500">
+            <span>
+              Page {data.page || 1} of {data.totalPages || 1} - Showing {data.data.length} of {data.total} cylinders
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={(data.page || 1) <= 1}
+              >
+                Prev
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs"
+                onClick={() => setPage((p) => p + 1)}
+                disabled={(data.page || 1) >= (data.totalPages || 1)}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

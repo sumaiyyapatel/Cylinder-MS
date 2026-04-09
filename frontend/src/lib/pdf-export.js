@@ -11,9 +11,25 @@ function getCompanyInfo() {
   // Read from localStorage settings cache, fallback to defaults
   try {
     const cached = localStorage.getItem("companySettings");
-    if (cached) return JSON.parse(cached);
+    if (cached) {
+      const settings = JSON.parse(cached);
+      // Map API response array to key-value if needed, but assuming it's already an object
+      if (Array.isArray(settings)) {
+        return settings.reduce((acc, curr) => {
+          acc[curr.key] = curr.value;
+          return acc;
+        }, {});
+      }
+      return settings;
+    }
   } catch {}
-  return { company_name: "[COMPANY NAME]", company_address: "[ADDRESS]", company_city: "[CITY]", company_gstin: "[GSTIN]", company_phone: "[PHONE]" };
+  return { 
+    company_name: "PATEL & CO.", 
+    company_address: "Industrial Estate", 
+    company_city: "Vadodara", 
+    company_gstin: "24AAAAA0000A1Z5", 
+    company_phone: "9876543210" 
+  };
 }
 
 function addHeader(doc, title, subtitle) {

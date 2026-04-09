@@ -153,19 +153,21 @@ router.get('/trial-balance', authenticate, async (req, res) => {
       _sum: { debitAmount: true, creditAmount: true },
     });
 
-    const result = await Promise.all(entries.map(async (e) => {
-      let partyName = e.partyCode;
-      if (e.partyCode) {
-        const cust = await prisma.customer.findUnique({ where: { code: e.partyCode }, select: { name: true } });
-        if (cust) partyName = cust.name;
-      }
-      return {
-        partyCode: e.partyCode,
-        partyName,
-        debit: parseFloat(e._sum.debitAmount || 0),
-        credit: parseFloat(e._sum.creditAmount || 0),
-        balance: parseFloat(e._sum.debitAmount || 0) - parseFloat(e._sum.creditAmount || 0),
-      };
+    const partyCodes = [...new Set(entries.map(e => e.partyCode).filter(Boolean))];
+    const customers = partyCodes.length
+      ? await prisma.customer.findMany({
+          where: { code: { in: partyCodes } },
+          select: { code: true, name: true },
+        })
+      : [];
+    const customerMap = new Map(customers.map(c => [c.code, c.name]));
+
+    const result = entries.map((e) => ({
+      partyCode: e.partyCode,
+      partyName: customerMap.get(e.partyCode) || e.partyCode,
+      debit: parseFloat(e._sum.debitAmount || 0),
+      credit: parseFloat(e._sum.creditAmount || 0),
+      balance: parseFloat(e._sum.debitAmount || 0) - parseFloat(e._sum.creditAmount || 0),
     }));
 
     res.json(result);
@@ -339,10 +341,21 @@ router.get('/outstanding', authenticate, async (req, res) => {
       _sum: { debitAmount: true, creditAmount: true },
     });
 
-    const result = await Promise.all(entries.filter(e => e.partyCode).map(async (e) => {
+    const filteredEntries = entries.filter(e => e.partyCode);
+    const partyCodes = [...new Set(filteredEntries.map(e => e.partyCode))];
+    const customers = partyCodes.length
+      ? await prisma.customer.findMany({
+          where: { code: { in: partyCodes } },
+          select: { code: true, name: true, phone: true },
+        })
+      : [];
+    const customerMap = new Map(customers.map(c => [c.code, c]));
+
+    const result = filteredEntries.map((e) => {
       const balance = parseFloat(e._sum.debitAmount || 0) - parseFloat(e._sum.creditAmount || 0);
       if (Math.abs(balance) < 0.01) return null;
-      const cust = await prisma.customer.findUnique({ where: { code: e.partyCode }, select: { code: true, name: true, phone: true } });
+
+      const cust = customerMap.get(e.partyCode);
       return {
         partyCode: e.partyCode,
         partyName: cust?.name || e.partyCode,
@@ -352,7 +365,7 @@ router.get('/outstanding', authenticate, async (req, res) => {
         balance,
         type: balance > 0 ? 'RECEIVABLE' : 'PAYABLE',
       };
-    }));
+    });
 
     res.json(result.filter(Boolean).sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance)));
   } catch (err) {

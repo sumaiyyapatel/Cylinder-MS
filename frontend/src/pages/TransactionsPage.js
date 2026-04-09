@@ -9,9 +9,12 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Plus, Trash2, Send, FileText } from "lucide-react";
+import { generateBillPDF } from "@/lib/pdf-export";
 
 export default function TransactionsPage() {
   const qc = useQueryClient();
+  const [page, setPage] = useState(1);
+  const limit = 50;
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
     billDate: new Date().toISOString().split("T")[0],
@@ -24,8 +27,8 @@ export default function TransactionsPage() {
   });
 
   const { data, isLoading } = useQuery({
-    queryKey: ["transactions"],
-    queryFn: () => api.get("/transactions", { params: { limit: 50 } }).then(r => r.data),
+    queryKey: ["transactions", page],
+    queryFn: () => api.get("/transactions", { params: { page, limit } }).then(r => r.data),
   });
   const { data: customers } = useQuery({ queryKey: ["customers-list"], queryFn: () => api.get("/customers", { params: { limit: 200 } }).then(r => r.data) });
   const { data: gasTypes } = useQuery({ queryKey: ["gasTypes"], queryFn: () => api.get("/gas-types").then(r => r.data) });
@@ -64,6 +67,33 @@ export default function TransactionsPage() {
     const validCyls = form.cylinders.filter(c => c.cylinderNumber);
     if (!validCyls.length) return toast.error("At least one cylinder required");
     saveMut.mutate({ ...form, customerId: parseInt(form.customerId), cylinders: validCyls });
+  };
+
+  const normalizePhoneForWhatsApp = (phone) => {
+    const digits = (phone || "").replace(/\D/g, "");
+    if (!digits) return "";
+    if (digits.length === 10) return `91${digits}`;
+    return digits;
+  };
+
+  const handleSendWhatsApp = (txn) => {
+    const customer = txn.customer;
+    const phone = normalizePhoneForWhatsApp(customer?.phone);
+
+    if (!phone) {
+      toast.error("Customer phone number is missing");
+      return;
+    }
+
+    const message = [
+      `Hello ${customer?.name || "Customer"},`,
+      `Bill ${txn.billNumber || "-"} dated ${formatDate(txn.billDate)} is ready.`,
+      `Gas: ${txn.gasCode || "-"}, Cylinder: ${txn.cylinderNumber || "-"}, Quantity: ${txn.quantityCum || "-"}.`,
+      "Thank you.",
+    ].join("\n");
+
+    const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+    window.open(waUrl, "_blank", "noopener,noreferrer");
   };
 
   const customerName = customers?.data?.find(c => c.id === parseInt(form.customerId))?.name || "";
@@ -186,8 +216,21 @@ export default function TransactionsPage() {
                     <td className="px-3 py-2">{t.quantityCum || "-"}</td>
                     <td className="px-3 py-2 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <button title="Send WhatsApp" className="p-1 rounded hover:bg-slate-100 text-slate-400"><Send className="w-3.5 h-3.5" /></button>
-                        <button title="View PDF" className="p-1 rounded hover:bg-slate-100 text-slate-400"><FileText className="w-3.5 h-3.5" /></button>
+                        <button
+                          type="button"
+                          onClick={() => handleSendWhatsApp(t)}
+                          title="Send WhatsApp"
+                          className="p-1 rounded hover:bg-slate-100 text-green-600"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                        </button>
+                        <button 
+                          onClick={() => generateBillPDF(t, t.customer)}
+                          title="Download PDF" 
+                          className="p-1 rounded hover:bg-slate-100 text-blue-600"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -195,6 +238,35 @@ export default function TransactionsPage() {
             </tbody>
           </table>
         </div>
+        {data?.total > 0 && (
+          <div className="flex items-center justify-between px-3 py-2 border-t border-slate-200 bg-white text-xs text-slate-500">
+            <span>
+              Page {data.page || 1} of {data.totalPages || 1} - Showing {data.data.length} of {data.total} transactions
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={(data.page || 1) <= 1}
+              >
+                Prev
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs"
+                onClick={() => setPage((p) => p + 1)}
+                disabled={(data.page || 1) >= (data.totalPages || 1)}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

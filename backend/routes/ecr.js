@@ -23,33 +23,36 @@ async function generateEcrNumber() {
 // Helper: calculate rental using 3-tier system
 function calculateRental(holdDays, rateConfig) {
   if (!rateConfig) return 0;
-  const freeDays = rateConfig.rentalFreeDays || 0;
-  if (holdDays <= freeDays) return 0;
+
+  const safeHoldDays = Math.max(0, Number(holdDays) || 0);
+  const freeDays = Math.max(0, Number(rateConfig.rentalFreeDays) || 0);
+  if (safeHoldDays <= freeDays) return 0;
+
+  const tierWindow = (fromVal, toVal, defaultFrom, defaultTo) => {
+    const from = Math.max(1, Number(fromVal) || defaultFrom);
+    const to = Math.max(from, Number(toVal) || defaultTo);
+    return to - from + 1;
+  };
 
   let rent = 0;
-  let remainingDays = holdDays - freeDays;
+  let remainingDays = safeHoldDays - freeDays;
 
   // Tier 1
-  if (rateConfig.rentalRate1 && rateConfig.rentalDaysFrom1 && rateConfig.rentalDaysTo1) {
-    const tierDays = Math.min(remainingDays, rateConfig.rentalDaysTo1 - freeDays);
-    if (tierDays > 0) {
-      rent += tierDays * parseFloat(rateConfig.rentalRate1);
-      remainingDays -= tierDays;
-    }
+  if (rateConfig.rentalRate1 && remainingDays > 0) {
+    const tier1Days = Math.min(remainingDays, tierWindow(rateConfig.rentalDaysFrom1, rateConfig.rentalDaysTo1, 1, 15));
+    rent += tier1Days * parseFloat(rateConfig.rentalRate1);
+    remainingDays -= tier1Days;
   }
 
   // Tier 2
-  if (remainingDays > 0 && rateConfig.rentalRate2) {
-    const tierRange = (rateConfig.rentalDaysTo2 || 30) - (rateConfig.rentalDaysFrom2 || 16) + 1;
-    const tierDays = Math.min(remainingDays, tierRange);
-    if (tierDays > 0) {
-      rent += tierDays * parseFloat(rateConfig.rentalRate2);
-      remainingDays -= tierDays;
-    }
+  if (rateConfig.rentalRate2 && remainingDays > 0) {
+    const tier2Days = Math.min(remainingDays, tierWindow(rateConfig.rentalDaysFrom2, rateConfig.rentalDaysTo2, 16, 30));
+    rent += tier2Days * parseFloat(rateConfig.rentalRate2);
+    remainingDays -= tier2Days;
   }
 
-  // Tier 3
-  if (remainingDays > 0 && rateConfig.rentalRate3) {
+  // Tier 3 (remaining days)
+  if (rateConfig.rentalRate3 && remainingDays > 0) {
     rent += remainingDays * parseFloat(rateConfig.rentalRate3);
   }
 
@@ -109,7 +112,7 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), async 
         issueDate = holding.issuedAt;
         issueNumber = holding.transaction?.billNumber || null;
         const returnDate = ecrDate ? new Date(ecrDate) : new Date();
-        holdDays = Math.ceil((returnDate - new Date(issueDate)) / (1000 * 60 * 60 * 24));
+        holdDays = Math.max(0, Math.ceil((returnDate - new Date(issueDate)) / (1000 * 60 * 60 * 24)));
 
         // Get rate config
         const rateConfig = await prisma.rateList.findFirst({

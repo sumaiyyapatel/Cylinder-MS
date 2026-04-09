@@ -14,6 +14,15 @@ import { Plus, Pencil } from "lucide-react";
 
 const ROLES = ["ADMIN", "MANAGER", "OPERATOR", "ACCOUNTANT", "VIEWER"];
 
+function validatePassword(password) {
+  if (password.length < 8) return "Password must be at least 8 characters";
+  if (!/[A-Z]/.test(password)) return "Password must include an uppercase letter";
+  if (!/[a-z]/.test(password)) return "Password must include a lowercase letter";
+  if (!/[0-9]/.test(password)) return "Password must include a number";
+  if (!/[^A-Za-z0-9]/.test(password)) return "Password must include a special character";
+  return null;
+}
+
 export default function UsersPage() {
   const { hasRole } = useAuth();
   const qc = useQueryClient();
@@ -46,6 +55,12 @@ export default function UsersPage() {
 
   const handleSave = (e) => {
     e.preventDefault();
+
+    if (!editing || form.password) {
+      const pwdError = validatePassword(form.password);
+      if (pwdError) return toast.error(pwdError);
+    }
+
     const payload = { fullName: form.fullName, role: form.role };
     if (!editing) {
       payload.username = form.username;

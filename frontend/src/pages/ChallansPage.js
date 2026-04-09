@@ -8,14 +8,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus } from "lucide-react";
+import { Plus, FileText } from "lucide-react";
+import { generateChallanPDF } from "@/lib/pdf-export";
 
 export default function ChallansPage() {
   const qc = useQueryClient();
+  const [page, setPage] = useState(1);
+  const limit = 50;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState({ challanDate: new Date().toISOString().split("T")[0], customerId: "", cylinderOwner: "COC", cylindersCount: "", quantityCum: "", vehicleNumber: "", transactionType: "DELIVERY" });
 
-  const { data, isLoading } = useQuery({ queryKey: ["challans"], queryFn: () => api.get("/challans", { params: { limit: 50 } }).then(r => r.data) });
+  const { data, isLoading } = useQuery({ queryKey: ["challans", page], queryFn: () => api.get("/challans", { params: { page, limit } }).then(r => r.data) });
   const { data: customers } = useQuery({ queryKey: ["customers-list"], queryFn: () => api.get("/customers", { params: { limit: 200 } }).then(r => r.data) });
 
   const saveMut = useMutation({
@@ -37,6 +40,7 @@ export default function ChallansPage() {
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-xs uppercase tracking-wider font-semibold">
                 <th className="px-3 py-2">Challan No</th><th className="px-3 py-2">Date</th><th className="px-3 py-2">Customer</th>
                 <th className="px-3 py-2">Owner</th><th className="px-3 py-2">Cyls</th><th className="px-3 py-2">Vehicle</th><th className="px-3 py-2">Type</th>
+                <th className="px-3 py-2 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -51,11 +55,49 @@ export default function ChallansPage() {
                     <td className="px-3 py-2">{c.cylindersCount || "-"}</td>
                     <td className="px-3 py-2">{c.vehicleNumber || "-"}</td>
                     <td className="px-3 py-2">{c.transactionType || "-"}</td>
+                    <td className="px-3 py-2 text-right">
+                      <button 
+                        onClick={() => generateChallanPDF(c, c.customer)}
+                        title="Download PDF" 
+                        className="p-1 rounded hover:bg-slate-100 text-blue-600"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
                   </tr>
                 ))}
             </tbody>
           </table>
         </div>
+        {data?.total > 0 && (
+          <div className="flex items-center justify-between px-3 py-2 border-t border-slate-200 bg-white text-xs text-slate-500">
+            <span>
+              Page {data.page || 1} of {data.totalPages || 1} - Showing {data.data.length} of {data.total} challans
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={(data.page || 1) <= 1}
+              >
+                Prev
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs"
+                onClick={() => setPage((p) => p + 1)}
+                disabled={(data.page || 1) >= (data.totalPages || 1)}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

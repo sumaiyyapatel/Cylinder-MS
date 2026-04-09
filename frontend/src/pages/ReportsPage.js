@@ -8,7 +8,13 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Printer, Download } from "lucide-react";
+import { Printer, Download, FileDown } from "lucide-react";
+import { 
+  generateHoldingPDF, 
+  generateDailyReportPDF, 
+  generateCustomerStatementPDF, 
+  generateTrialBalancePDF 
+} from "@/lib/pdf-export";
 
 export default function ReportsPage() {
   const [activeReport, setActiveReport] = useState("holding");
@@ -43,13 +49,34 @@ export default function ReportsPage() {
 
   const handlePrint = () => window.print();
 
+  const handleExportPDF = () => {
+    switch (activeReport) {
+      case "holding":
+        if (holdingData) generateHoldingPDF(holdingData);
+        break;
+      case "daily":
+        if (dailyData) generateDailyReportPDF(dailyData);
+        break;
+      case "customer-stmt":
+        if (customerStmt) generateCustomerStatementPDF(customerStmt);
+        break;
+      case "trial-balance":
+        if (trialBalance) generateTrialBalancePDF(trialBalance);
+        break;
+      default:
+        console.warn("No PDF generator for this report");
+    }
+  };
+
   return (
     <div className="space-y-4" data-testid="reports-page">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-slate-900" style={{ fontFamily: 'var(--font-heading)' }}>Reports</h1>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={handlePrint} className="h-8 text-xs no-print"><Printer className="w-3.5 h-3.5 mr-1" /> Print</Button>
-          <Button variant="outline" size="sm" className="h-8 text-xs no-print"><Download className="w-3.5 h-3.5 mr-1" /> Export PDF</Button>
+          <Button variant="outline" size="sm" onClick={handleExportPDF} className="h-8 text-xs no-print">
+            <Download className="w-3.5 h-3.5 mr-1" /> Export PDF
+          </Button>
         </div>
       </div>
 

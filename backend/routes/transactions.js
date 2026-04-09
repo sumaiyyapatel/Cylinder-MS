@@ -38,7 +38,7 @@ router.get('/', authenticate, async (req, res) => {
       prisma.transaction.findMany({
         where, skip, take: parseInt(limit),
         orderBy: { billDate: 'desc' },
-        include: { customer: { select: { id: true, code: true, name: true } } },
+        include: { customer: { select: { id: true, code: true, name: true, phone: true } } },
       }),
       prisma.transaction.count({ where }),
     ]);
@@ -55,6 +55,27 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), async 
     
     if (!customerId || !cylinders || !cylinders.length) {
       return res.status(400).json({ error: 'Customer and at least one cylinder required' });
+    }
+
+    const cylinderNumbers = cylinders
+      .map(c => (c.cylinderNumber || '').trim())
+      .filter(Boolean);
+
+    if (!cylinderNumbers.length) {
+      return res.status(400).json({ error: 'At least one valid cylinder number required' });
+    }
+
+    const existingCylinders = await prisma.cylinder.findMany({
+      where: { cylinderNumber: { in: cylinderNumbers } },
+      select: { cylinderNumber: true },
+    });
+    const existingSet = new Set(existingCylinders.map(c => c.cylinderNumber));
+    const missingCylinders = cylinderNumbers.filter(num => !existingSet.has(num));
+
+    if (missingCylinders.length) {
+      return res.status(400).json({
+        error: `Cylinder(s) not found: ${missingCylinders.join(', ')}`,
+      });
     }
 
     const results = [];

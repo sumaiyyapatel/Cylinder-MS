@@ -14,6 +14,7 @@ export default function SettingsPage() {
   const { hasRole } = useAuth();
   const qc = useQueryClient();
   const [settings, setSettings] = useState({});
+  const [utilityBusy, setUtilityBusy] = useState(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["settings"],
@@ -29,11 +30,121 @@ export default function SettingsPage() {
 
   const saveMut = useMutation({
     mutationFn: (d) => api.put("/settings", d),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["settings"] }); toast.success("Settings saved"); },
+    onSuccess: (res) => { 
+      qc.invalidateQueries({ queryKey: ["settings"] }); 
+      localStorage.setItem("companySettings", JSON.stringify(settings));
+      toast.success("Settings saved"); 
+    },
     onError: (e) => toast.error(e.response?.data?.error || "Failed"),
   });
 
   const isAdmin = hasRole("ADMIN");
+
+  const downloadJsonFile = (filename, payload) => {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const fetchExportResource = async (path, params) => {
+    const response = await api.get(path, params ? { params } : undefined);
+    return response.data;
+  };
+
+  const handleBackupDatabase = async () => {
+    try {
+      setUtilityBusy("backup");
+      const [companySettings, gst, customers, areas, gasTypes] = await Promise.all([
+        fetchExportResource("/settings"),
+        fetchExportResource("/settings/gst-rates"),
+        fetchExportResource("/customers", { limit: 5000 }),
+        fetchExportResource("/areas", { limit: 5000 }),
+        fetchExportResource("/gas-types"),
+      ]);
+
+      const backup = {
+        generatedAt: new Date().toISOString(),
+        type: "settings-and-masters",
+        companySettings,
+        gstRates: gst,
+        customers: customers?.data || customers,
+        areas: areas?.data || areas,
+        gasTypes,
+      };
+
+      downloadJsonFile(`backup_${new Date().toISOString().slice(0, 10)}.json`, backup);
+      toast.success("Backup exported");
+    } catch (e) {
+      toast.error(e.response?.data?.error || "Backup failed");
+    } finally {
+      setUtilityBusy(null);
+    }
+  };
+
+  const handleRebuildIndex = async () => {
+    try {
+      setUtilityBusy("rebuild");
+      await qc.invalidateQueries();
+      await Promise.all([
+        qc.refetchQueries({ queryKey: ["settings"] }),
+        qc.refetchQueries({ queryKey: ["gstRates"] }),
+      ]);
+      toast.success("Local cache rebuilt");
+    } catch {
+      toast.error("Failed to rebuild local cache");
+    } finally {
+      setUtilityBusy(null);
+    }
+  };
+
+  const handleExportAllData = async () => {
+    try {
+      setUtilityBusy("export");
+      const [
+        customers,
+        areas,
+        gasTypes,
+        cylinders,
+        transactions,
+        challans,
+        ecr,
+        orders,
+      ] = await Promise.all([
+        fetchExportResource("/customers", { limit: 10000 }),
+        fetchExportResource("/areas", { limit: 10000 }),
+        fetchExportResource("/gas-types"),
+        fetchExportResource("/cylinders", { limit: 10000 }),
+        fetchExportResource("/transactions", { limit: 10000 }),
+        fetchExportResource("/challans", { limit: 10000 }),
+        fetchExportResource("/ecr", { limit: 10000 }),
+        fetchExportResource("/orders", { limit: 10000 }),
+      ]);
+
+      const exportPayload = {
+        generatedAt: new Date().toISOString(),
+        type: "full-data-export",
+        customers: customers?.data || customers,
+        areas: areas?.data || areas,
+        gasTypes,
+        cylinders: cylinders?.data || cylinders,
+        transactions: transactions?.data || transactions,
+        challans: challans?.data || challans,
+        ecr: ecr?.data || ecr,
+        orders: orders?.data || orders,
+      };
+
+      downloadJsonFile(`all_data_${new Date().toISOString().slice(0, 10)}.json`, exportPayload);
+      toast.success("All data exported");
+    } catch (e) {
+      toast.error(e.response?.data?.error || "Export failed");
+    } finally {
+      setUtilityBusy(null);
+    }
+  };
 
   return (
     <div className="space-y-4" data-testid="settings-page">
@@ -99,9 +210,30 @@ export default function SettingsPage() {
           <Card className="border border-slate-200 shadow-sm max-w-lg">
             <CardHeader className="pb-3"><CardTitle className="text-lg" style={{ fontFamily: 'var(--font-heading)' }}>System Utilities</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              <Button variant="outline" className="h-9 w-full justify-start">Backup Database</Button>
-              <Button variant="outline" className="h-9 w-full justify-start">Rebuild Index</Button>
-              <Button variant="outline" className="h-9 w-full justify-start">Export All Data</Button>
+              <Button
+                variant="outline"
+                className="h-9 w-full justify-start"
+                onClick={handleBackupDatabase}
+                disabled={utilityBusy === "backup"}
+              >
+                {utilityBusy === "backup" ? "Backing up..." : "Backup Database"}
+              </Button>
+              <Button
+                variant="outline"
+                className="h-9 w-full justify-start"
+                onClick={handleRebuildIndex}
+                disabled={utilityBusy === "rebuild"}
+              >
+                {utilityBusy === "rebuild" ? "Rebuilding..." : "Rebuild Index"}
+              </Button>
+              <Button
+                variant="outline"
+                className="h-9 w-full justify-start"
+                onClick={handleExportAllData}
+                disabled={utilityBusy === "export"}
+              >
+                {utilityBusy === "export" ? "Exporting..." : "Export All Data"}
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
