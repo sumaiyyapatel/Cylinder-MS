@@ -1,21 +1,21 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/lib/auth";
-import LoginPage from "@/pages/LoginPage";
-import DashboardPage from "@/pages/DashboardPage";
-import CustomersPage from "@/pages/CustomersPage";
-import CylindersPage from "@/pages/CylindersPage";
-import GasTypesPage from "@/pages/GasTypesPage";
-import AreasPage from "@/pages/AreasPage";
-import RateListPage from "@/pages/RateListPage";
-import OrdersPage from "@/pages/OrdersPage";
-import TransactionsPage from "@/pages/TransactionsPage";
-import EcrPage from "@/pages/EcrPage";
-import ChallansPage from "@/pages/ChallansPage";
-import LedgerPage from "@/pages/LedgerPage";
-import ReportsPage from "@/pages/ReportsPage";
-import SettingsPage from "@/pages/SettingsPage";
-import UsersPage from "@/pages/UsersPage";
-import AppLayout from "@/components/AppLayout";
+import LoginPage from "@/pages/auth/LoginPage";
+import DashboardPage from "@/pages/dashboard/DashboardPage";
+import CustomersPage from "@/pages/masters/CustomersPage";
+import CylindersPage from "@/pages/masters/CylindersPage";
+import GasTypesPage from "@/pages/masters/GasTypesPage";
+import AreasPage from "@/pages/masters/AreasPage";
+import RateListPage from "@/pages/masters/RateListPage";
+import OrdersPage from "@/pages/masters/OrdersPage";
+import TransactionsPage from "@/pages/transactions/TransactionsPage";
+import EcrPage from "@/pages/transactions/EcrPage";
+import ChallansPage from "@/pages/transactions/ChallansPage";
+import LedgerPage from "@/pages/accounting/LedgerPage";
+import ReportsPage from "@/pages/reports/ReportsPage";
+import SettingsPage from "@/pages/settings/SettingsPage";
+import UsersPage from "@/pages/settings/UsersPage";
+import AppLayout from "@/components/layout/AppLayout";
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
