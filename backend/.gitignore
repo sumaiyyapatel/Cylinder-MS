@@ -1,5 +1,22 @@
-node_modules
-# Keep environment variables out of version control
-.env
+node_modules/
 
-/generated/prisma
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build and tooling artifacts
+coverage/
+dist/
+generated/prisma/
+
+# SQLite fallback artifacts (if used locally)
+prisma/dev.db
+prisma/dev.db-journal
