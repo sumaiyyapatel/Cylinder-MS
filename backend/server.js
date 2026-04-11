@@ -1,6 +1,8 @@
 require('dotenv').config({ override: true });
 const express = require('express');
 const cors = require('cors');
+const { globalErrorHandler } = require('./src/middleware/errorHandler');
+const { startOverdueCylinderScheduler } = require('./src/services/overdueScheduler');
 const authRoutes = require('./src/routes/auth');
 const customerRoutes = require('./src/routes/customers');
 const cylinderRoutes = require('./src/routes/cylinders');
@@ -68,15 +70,9 @@ app.use('/api/reports', reportsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/users', usersRoutes);
 
-// Error handler
-app.use((err, req, res, next) => {
-  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
-    return res.status(400).json({ error: 'Invalid JSON payload' });
-  }
+app.use(globalErrorHandler);
 
-  console.error(err.stack);
-  res.status(500).json({ error: 'Internal server error', detail: err.message });
-});
+startOverdueCylinderScheduler();
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);

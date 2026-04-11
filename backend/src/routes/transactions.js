@@ -1,132 +1,102 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { authenticate, authorize } = require('../lib/auth');
+const asyncHandler = require('../middleware/asyncHandler');
+const { AppError } = require('../middleware/errorHandler');
 const {
-  getFinancialYearCode,
   isHydroTestOverdue,
   round2,
   deriveNextHydroDueDate,
   getGstMode,
   calculateGstBreakup,
 } = require('../services/businessRules');
+const {
+  generateBillNumber,
+  generateSalesVoucherNumber,
+  generateLedgerVoucherNumber,
+} = require('../services/numberingService');
+const { updateCylinderStatus, assertNoActiveHolding } = require('../services/cylinderStatusService');
+const { createAuditLog } = require('../services/auditService');
+const {
+  parseRequiredInt,
+  parseOptionalNonNegativeNumber,
+  parseDate,
+  validateCylinderNumber,
+  validateCylinderNumbersUnique,
+  validateGstRate,
+} = require('../lib/validation');
 
 const router = express.Router();
 
-// Helper: generate bill number XX/YY/NNNNN
-async function generateBillNumber(ownerCode, forDate = new Date()) {
-  const series = ownerCode === 'COC' ? 'CA' : 'PA';
-  const year = getFinancialYearCode(forDate);
-  const prefix = `${series}/${year}/`;
-  const last = await prisma.transaction.findFirst({
-    where: { billNumber: { startsWith: prefix } },
-    orderBy: { billNumber: 'desc' },
-  });
-  let seq = 1;
-  if (last) {
-    const parts = last.billNumber.split('/');
-    seq = parseInt(parts[2], 10) + 1;
-  }
-  return `${prefix}${seq.toString().padStart(5, '0')}`;
-}
-
-async function generateSalesVoucherNumber(forDate = new Date()) {
-  const year = getFinancialYearCode(forDate);
-  const prefix = `SB/${year}/`;
-  const last = await prisma.salesBook.findFirst({
-    where: { voucherNumber: { startsWith: prefix } },
-    orderBy: { voucherNumber: 'desc' },
-  });
-  let seq = 1;
-  if (last) {
-    const parts = last.voucherNumber.split('/');
-    seq = parseInt(parts[2], 10) + 1;
-  }
-  return `${prefix}${seq.toString().padStart(5, '0')}`;
-}
-
-async function generateLedgerVoucherNumber(transactionType, forDate = new Date()) {
-  const typeMap = {
-    CASH_RECEIPT: 'CR',
-    CASH_PAYMENT: 'CP',
-    BANK_RECEIPT: 'BR',
-    BANK_PAYMENT: 'BP',
-    JOURNAL: 'JV',
-    CONTRA: 'CT',
-    DEBIT_NOTE: 'DN',
-    CREDIT_NOTE: 'CN',
-  };
-  const year = getFinancialYearCode(forDate);
-  const code = typeMap[transactionType] || 'JV';
-  const prefix = `${code}/${year}/`;
-  const last = await prisma.ledgerEntry.findFirst({
-    where: { voucherNumber: { startsWith: prefix } },
-    orderBy: { voucherNumber: 'desc' },
-  });
-  let seq = 1;
-  if (last) {
-    const parts = last.voucherNumber.split('/');
-    seq = parseInt(parts[2], 10) + 1;
-  }
-  return `${prefix}${seq.toString().padStart(5, '0')}`;
-}
-
 // GET /api/transactions
-router.get('/', authenticate, async (req, res) => {
-  try {
-    const { customerId, gasCode, dateFrom, dateTo, page = 1, limit = 50 } = req.query;
-    const where = {};
-    if (customerId) where.customerId = parseInt(customerId, 10);
-    if (gasCode) where.gasCode = gasCode;
-    if (dateFrom || dateTo) {
-      where.billDate = {};
-      if (dateFrom) where.billDate.gte = new Date(dateFrom);
-      if (dateTo) where.billDate.lte = new Date(`${dateTo}T23:59:59Z`);
-    }
-
-    const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
-    const [transactions, total] = await Promise.all([
-      prisma.transaction.findMany({
-        where,
-        skip,
-        take: parseInt(limit, 10),
-        orderBy: { billDate: 'desc' },
-        include: { customer: { select: { id: true, code: true, name: true, phone: true } } },
-      }),
-      prisma.transaction.count({ where }),
-    ]);
-
-    res.json({
-      data: transactions,
-      total,
-      page: parseInt(page, 10),
-      totalPages: Math.ceil(total / parseInt(limit, 10)),
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+router.get('/', authenticate, asyncHandler(async (req, res) => {
+  const { customerId, gasCode, dateFrom, dateTo, page = 1, limit = 50 } = req.query;
+  const where = {};
+  if (customerId) where.customerId = parseInt(customerId, 10);
+  if (gasCode) where.gasCode = gasCode;
+  if (dateFrom || dateTo) {
+    where.billDate = {};
+    if (dateFrom) where.billDate.gte = new Date(dateFrom);
+    if (dateTo) where.billDate.lte = new Date(`${dateTo}T23:59:59Z`);
   }
-});
+
+  const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+  const [transactions, total] = await Promise.all([
+    prisma.transaction.findMany({
+      where,
+      skip,
+      take: parseInt(limit, 10),
+      orderBy: { billDate: 'desc' },
+      include: { customer: { select: { id: true, code: true, name: true, phone: true } } },
+    }),
+    prisma.transaction.count({ where }),
+  ]);
+
+  res.json({
+    data: transactions,
+    total,
+    page: parseInt(page, 10),
+    totalPages: Math.ceil(total / parseInt(limit, 10)),
+  });
+}));
 
 // POST /api/transactions (Bill Cum Challan)
-router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), async (req, res) => {
-  try {
-    const { customerId, gasCode, cylinderOwner, cylinders, billDate, orderNumber, transactionCode } = req.body;
-    const effectiveBillDate = billDate ? new Date(billDate) : new Date();
+router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
+  const { customerId, gasCode, cylinderOwner, cylinders, billDate, orderNumber, transactionCode } = req.body;
+  const customerIdNum = parseRequiredInt(customerId, 'customerId');
+  const effectiveBillDate = parseDate(billDate, 'billDate') || new Date();
 
-    if (!customerId || !cylinders || !cylinders.length) {
-      return res.status(400).json({ error: 'Customer and at least one cylinder required' });
+  if (!Array.isArray(cylinders) || cylinders.length === 0) {
+    throw new AppError(400, 'At least one cylinder is required');
+  }
+
+  const preparedCylinders = cylinders.map((cyl, index) => {
+    const number = validateCylinderNumber(cyl?.cylinderNumber, `cylinders[${index}].cylinderNumber`);
+    const quantityCum = parseOptionalNonNegativeNumber(cyl?.quantityCum, `cylinders[${index}].quantityCum`);
+    return {
+      cylinderNumber: number,
+      quantityCum,
+    };
+  });
+
+  validateCylinderNumbersUnique(preparedCylinders.map((c) => c.cylinderNumber));
+
+  const results = await prisma.$transaction(async (tx) => {
+    const [customer, companyGstinSetting] = await Promise.all([
+      tx.customer.findUnique({
+        where: { id: customerIdNum },
+        select: { id: true, code: true, gstin: true, isActive: true },
+      }),
+      tx.companySetting.findUnique({ where: { key: 'company_gstin' } }),
+    ]);
+
+    if (!customer || !customer.isActive) {
+      throw new AppError(404, 'Customer not found');
     }
 
-    const customerIdNum = parseInt(customerId, 10);
-    const cylinderNumbers = cylinders
-      .map((c) => (c.cylinderNumber || '').trim())
-      .filter(Boolean);
-
-    if (!cylinderNumbers.length) {
-      return res.status(400).json({ error: 'At least one valid cylinder number required' });
-    }
-
-    const existingCylinders = await prisma.cylinder.findMany({
-      where: { cylinderNumber: { in: cylinderNumbers } },
+    const cylinderNumbers = preparedCylinders.map((c) => c.cylinderNumber);
+    const dbCylinders = await tx.cylinder.findMany({
+      where: { cylinderNumber: { in: cylinderNumbers }, isActive: true },
       select: {
         id: true,
         cylinderNumber: true,
@@ -137,19 +107,16 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), async 
       },
     });
 
-    const existingSet = new Set(existingCylinders.map((c) => c.cylinderNumber));
-    const cylinderByNumber = new Map(existingCylinders.map((c) => [c.cylinderNumber, c]));
+    const existingSet = new Set(dbCylinders.map((c) => c.cylinderNumber));
     const missingCylinders = cylinderNumbers.filter((num) => !existingSet.has(num));
-
     if (missingCylinders.length) {
-      return res.status(400).json({
-        error: `Cylinder(s) not found: ${missingCylinders.join(', ')}`,
-      });
+      throw new AppError(400, `Cylinder(s) not found: ${missingCylinders.join(', ')}`);
     }
 
-    const holdingRecords = await prisma.cylinderHolding.findMany({
+    const cylinderByNumber = new Map(dbCylinders.map((c) => [c.cylinderNumber, c]));
+    const holdingRecords = await tx.cylinderHolding.findMany({
       where: {
-        cylinderId: { in: existingCylinders.map((c) => c.id) },
+        cylinderId: { in: dbCylinders.map((c) => c.id) },
         status: 'HOLDING',
       },
       select: { cylinderId: true },
@@ -160,107 +127,84 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), async 
     const blockedNotInStock = [];
     const blockedHydroOverdue = [];
     const blockedMissingHydro = [];
-    const cylindersNeedingHydroDueUpdate = [];
 
-    for (const num of cylinderNumbers) {
-      const cylinder = cylinderByNumber.get(num);
+    for (const number of cylinderNumbers) {
+      const cylinder = cylinderByNumber.get(number);
       if (!cylinder) continue;
 
-      if (cylinder.status === 'WITH_CUSTOMER' || holdingCylinderIds.has(cylinder.id)) {
-        blockedWithCustomer.push(num);
+      if (holdingCylinderIds.has(cylinder.id)) {
+        blockedWithCustomer.push(number);
       }
 
       if (cylinder.status !== 'IN_STOCK') {
-        blockedNotInStock.push(num);
+        blockedNotInStock.push(number);
       }
 
       const derivedDue = deriveNextHydroDueDate(cylinder);
       if (!derivedDue) {
-        blockedMissingHydro.push(num);
-      } else {
-        if (!cylinder.nextTestDue && cylinder.hydroTestDate) {
-          cylindersNeedingHydroDueUpdate.push({ id: cylinder.id, dueDate: derivedDue });
-        }
-        if (isHydroTestOverdue({ ...cylinder, nextTestDue: derivedDue }, effectiveBillDate)) {
-          blockedHydroOverdue.push(num);
-        }
+        blockedMissingHydro.push(number);
+        continue;
+      }
+
+      if (!cylinder.nextTestDue && cylinder.hydroTestDate) {
+        await tx.cylinder.update({
+          where: { id: cylinder.id },
+          data: { nextTestDue: derivedDue },
+        });
+      }
+
+      if (isHydroTestOverdue({ ...cylinder, nextTestDue: derivedDue }, effectiveBillDate)) {
+        blockedHydroOverdue.push(number);
       }
     }
 
     if (blockedWithCustomer.length) {
-      return res.status(400).json({
-        error: `Cannot issue cylinder(s) already on active holding: ${[...new Set(blockedWithCustomer)].join(', ')}`,
-      });
+      throw new AppError(409, `Cannot issue cylinder(s) already on active holding: ${[...new Set(blockedWithCustomer)].join(', ')}`);
     }
-
     if (blockedNotInStock.length) {
-      return res.status(400).json({
-        error: `Cylinder(s) must be IN_STOCK before issue: ${[...new Set(blockedNotInStock)].join(', ')}`,
-      });
+      throw new AppError(400, `Cylinder(s) must be IN_STOCK before issue: ${[...new Set(blockedNotInStock)].join(', ')}`);
     }
-
     if (blockedMissingHydro.length) {
-      return res.status(400).json({
-        error: `Hydro test data missing for cylinder(s): ${[...new Set(blockedMissingHydro)].join(', ')}`,
-      });
+      throw new AppError(400, `Hydro test data missing for cylinder(s): ${[...new Set(blockedMissingHydro)].join(', ')}`);
     }
-
     if (blockedHydroOverdue.length) {
-      return res.status(400).json({
-        error: `Hydro test overdue for cylinder(s): ${[...new Set(blockedHydroOverdue)].join(', ')}`,
-      });
+      throw new AppError(400, `Hydro test overdue for cylinder(s): ${[...new Set(blockedHydroOverdue)].join(', ')}`);
     }
 
-    if (cylindersNeedingHydroDueUpdate.length) {
-      await Promise.all(
-        cylindersNeedingHydroDueUpdate.map((item) =>
-          prisma.cylinder.update({
-            where: { id: item.id },
-            data: { nextTestDue: item.dueDate },
-          })
-        )
-      );
-    }
+    const created = [];
 
-    const [customer, companyGstinSetting] = await Promise.all([
-      prisma.customer.findUnique({ where: { id: customerIdNum }, select: { id: true, code: true, gstin: true } }),
-      prisma.companySetting.findUnique({ where: { key: 'company_gstin' } }),
-    ]);
+    for (const item of preparedCylinders) {
+      const cylinder = cylinderByNumber.get(item.cylinderNumber);
+      await assertNoActiveHolding(tx, cylinder.id, cylinder.cylinderNumber);
 
-    if (!customer) {
-      return res.status(404).json({ error: 'Customer not found' });
-    }
-
-    const results = [];
-    for (const cyl of cylinders) {
-      if (!cyl.cylinderNumber) continue;
-
-      const billNumber = await generateBillNumber(cylinderOwner || 'COC', effectiveBillDate);
-      const cylinder = cylinderByNumber.get(cyl.cylinderNumber);
-      const quantityCum = cyl.quantityCum ? round2(cyl.quantityCum) : 0;
-
-      const rateConfig = await prisma.rateList.findFirst({
+      const billNumber = await generateBillNumber(tx, cylinderOwner || 'COC', effectiveBillDate);
+      const quantityCum = round2(item.quantityCum || 0);
+      const rateConfig = await tx.rateList.findFirst({
         where: {
-          gasCode: gasCode || cylinder?.gasCode || undefined,
+          gasCode: gasCode || cylinder.gasCode || undefined,
           ownerCode: cylinderOwner || 'COC',
         },
         orderBy: { effectiveFrom: 'desc' },
       });
 
-      const gstRate = Number(rateConfig?.gstRate ?? 0);
+      const gstRate = rateConfig?.gstRate == null ? 0 : validateGstRate(rateConfig.gstRate, 'gstRate');
       const unitRate = Number(rateConfig?.ratePerUnit ?? 0);
+      if (!Number.isFinite(unitRate) || unitRate < 0) {
+        throw new AppError(400, 'Rate list has invalid unit rate');
+      }
+
       const taxableAmount = round2(quantityCum * unitRate);
       const gstMode = getGstMode(companyGstinSetting?.value, customer.gstin);
       const tax = calculateGstBreakup(taxableAmount, gstRate, gstMode);
 
-      const txn = await prisma.transaction.create({
+      const txn = await tx.transaction.create({
         data: {
           billNumber,
           billDate: effectiveBillDate,
           customerId: customerIdNum,
           gasCode,
           cylinderOwner: cylinderOwner || 'COC',
-          cylinderNumber: cyl.cylinderNumber,
+          cylinderNumber: item.cylinderNumber,
           quantityCum: quantityCum || null,
           orderNumber,
           transactionCode: transactionCode || 'ISSUE',
@@ -269,9 +213,8 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), async 
         },
       });
 
-      // Bill creates accounting entries; challan route intentionally does not.
-      const salesVoucher = await generateSalesVoucherNumber(effectiveBillDate);
-      await prisma.salesBook.create({
+      const salesVoucher = await generateSalesVoucherNumber(tx, effectiveBillDate);
+      await tx.salesBook.create({
         data: {
           voucherNumber: salesVoucher,
           voucherDate: effectiveBillDate,
@@ -290,8 +233,8 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), async 
         },
       });
 
-      const ledgerVoucher = await generateLedgerVoucherNumber('JOURNAL', effectiveBillDate);
-      await prisma.ledgerEntry.create({
+      const ledgerVoucher = await generateLedgerVoucherNumber(tx, 'JOURNAL', effectiveBillDate);
+      await tx.ledgerEntry.create({
         data: {
           voucherNumber: ledgerVoucher,
           voucherDate: effectiveBillDate,
@@ -306,24 +249,32 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), async 
         },
       });
 
-      if (cyl.cylinderNumber && cylinder) {
-        await prisma.cylinder.update({
-          where: { id: cylinder.id },
-          data: { status: 'WITH_CUSTOMER', fillCount: { increment: 1 } },
-        });
+      await updateCylinderStatus(tx, cylinder.id, 'WITH_CUSTOMER', { incrementFillCount: true });
+      const holding = await tx.cylinderHolding.create({
+        data: {
+          cylinderId: cylinder.id,
+          customerId: customerIdNum,
+          transactionId: txn.id,
+          issuedAt: effectiveBillDate,
+          status: 'HOLDING',
+        },
+      });
 
-        await prisma.cylinderHolding.create({
-          data: {
-            cylinderId: cylinder.id,
-            customerId: customerIdNum,
-            transactionId: txn.id,
-            issuedAt: effectiveBillDate,
-            status: 'HOLDING',
-          },
-        });
-      }
+      await createAuditLog(tx, {
+        action: 'ISSUE_CYLINDER',
+        module: 'transactions',
+        userId: req.user.sub,
+        entityId: String(txn.id),
+        oldValue: { cylinderStatus: cylinder.status },
+        newValue: {
+          cylinderStatus: 'WITH_CUSTOMER',
+          holdingId: holding.id,
+          billNumber,
+          cylinderNumber: item.cylinderNumber,
+        },
+      });
 
-      results.push({
+      created.push({
         ...txn,
         gstMode,
         gstRate: round2(gstRate),
@@ -333,22 +284,17 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), async 
       });
     }
 
-    res.status(201).json({ message: `${results.length} transaction(s) created`, transactions: results });
-  } catch (err) {
-    console.error('Transaction error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
+    return created;
+  });
+
+  res.status(201).json({ message: `${results.length} transaction(s) created`, transactions: results });
+}));
 
 // GET /api/transactions/next-bill-number
-router.get('/next-bill-number', authenticate, async (req, res) => {
-  try {
-    const { ownerCode = 'COC' } = req.query;
-    const billNumber = await generateBillNumber(ownerCode);
-    res.json({ billNumber });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+router.get('/next-bill-number', authenticate, asyncHandler(async (req, res) => {
+  const { ownerCode = 'COC' } = req.query;
+  const billNumber = await generateBillNumber(prisma, ownerCode);
+  res.json({ billNumber });
+}));
 
 module.exports = router;

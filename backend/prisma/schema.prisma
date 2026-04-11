@@ -87,6 +87,7 @@ model Customer {
 
   area          Area?     @relation(fields: [areaCode], references: [areaCode])
   transactions  Transaction[]
+  orders        Order[]
   ecrRecords    EcrRecord[]
   challans      Challan[]
   holdings      CylinderHolding[]
@@ -105,6 +106,7 @@ model Cylinder {
   capacity        Decimal?
   gasCode         String?         @map("gas_code")
   status          CylinderStatus  @default(IN_STOCK)
+  isActive        Boolean         @default(true) @map("is_active")
   manufactureDate DateTime?       @map("manufacture_date")
   hydroTestDate   DateTime?       @map("hydro_test_date")
   nextTestDue     DateTime?       @map("next_test_due")
@@ -163,6 +165,10 @@ model Order {
   validTo      DateTime?   @map("valid_to")
   createdAt    DateTime    @default(now()) @map("created_at")
 
+  customer     Customer    @relation(fields: [customerId], references: [id])
+
+  @@index([status])
+
   @@map("orders")
 }
 
@@ -212,6 +218,9 @@ model Transaction {
 
   customer        Customer  @relation(fields: [customerId], references: [id])
   holdings        CylinderHolding[]
+  challans        Challan[]
+
+  @@index([customerId, billDate])
 
   @@map("transactions")
 }
@@ -257,6 +266,8 @@ model CylinderHolding {
   customer        Customer       @relation(fields: [customerId], references: [id])
   transaction     Transaction?   @relation(fields: [transactionId], references: [id])
 
+  @@index([status, issuedAt])
+
   @@map("cylinder_holdings")
 }
 
@@ -275,8 +286,27 @@ model Challan {
   createdAt       DateTime  @default(now()) @map("created_at")
 
   customer        Customer  @relation(fields: [customerId], references: [id])
+  linkedBill      Transaction? @relation(fields: [linkedBillId], references: [id])
+
+  @@index([linkedBillId])
+  @@index([customerId, challanDate])
 
   @@map("challans")
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  action    String
+  module    String
+  userId    Int?     @map("user_id")
+  entityId  String?  @map("entity_id")
+  oldValue  Json?    @map("old_value")
+  newValue  Json?    @map("new_value")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([module, createdAt])
+  @@index([userId, createdAt])
+  @@map("audit_logs")
 }
 
 model LedgerEntry {
