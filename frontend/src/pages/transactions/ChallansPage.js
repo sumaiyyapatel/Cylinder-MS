@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, FileText } from "lucide-react";
+import { Plus, Printer } from "lucide-react";
 import { generateChallanPDF } from "@/lib/pdf-export";
 
 export default function ChallansPage() {
@@ -56,13 +56,15 @@ export default function ChallansPage() {
                     <td className="px-3 py-2">{c.vehicleNumber || "-"}</td>
                     <td className="px-3 py-2">{c.transactionType || "-"}</td>
                     <td className="px-3 py-2 text-right">
-                      <button 
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
                         onClick={() => generateChallanPDF(c, c.customer)}
-                        title="Download PDF" 
-                        className="p-1 rounded hover:bg-slate-100 text-blue-600"
+                        className="h-7 px-2 text-xs"
                       >
-                        <FileText className="w-3.5 h-3.5" />
-                      </button>
+                        <Printer className="w-3.5 h-3.5 mr-1" /> Print
+                      </Button>
                     </td>
                   </tr>
                 ))}

@@ -8,6 +8,15 @@ const router = express.Router();
 router.get('/holding-statement', authenticate, async (req, res) => {
   try {
     const { customerId, gasCode, asOfDate } = req.query;
+    const thresholdSetting = await prisma.companySetting.findUnique({
+      where: { key: 'overdue_threshold_days' },
+      select: { value: true },
+    });
+    const parsedThreshold = parseInt(thresholdSetting?.value, 10);
+    const overdueThresholdDays = Number.isFinite(parsedThreshold) && parsedThreshold > 0
+      ? parsedThreshold
+      : 30;
+
     const where = { status: 'HOLDING' };
     if (customerId) where.customerId = parseInt(customerId);
     if (asOfDate) where.issuedAt = { lte: new Date(asOfDate + 'T23:59:59Z') };
@@ -37,7 +46,7 @@ router.get('/holding-statement', authenticate, async (req, res) => {
         issuedAt: h.issuedAt,
         billNumber: h.transaction?.billNumber,
         holdDays,
-        isOverdue: holdDays > 30,
+        isOverdue: holdDays > overdueThresholdDays,
       });
     }
 

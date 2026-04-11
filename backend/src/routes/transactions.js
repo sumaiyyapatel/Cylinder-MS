@@ -81,7 +81,7 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
 
   validateCylinderNumbersUnique(preparedCylinders.map((c) => c.cylinderNumber));
 
-  const results = await prisma.$transaction(async (tx) => {
+  const { created, warnings } = await prisma.$transaction(async (tx) => {
     const [customer, companyGstinSetting] = await Promise.all([
       tx.customer.findUnique({
         where: { id: customerIdNum },
@@ -164,11 +164,12 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
     if (blockedNotInStock.length) {
       throw new AppError(400, `Cylinder(s) must be IN_STOCK before issue: ${[...new Set(blockedNotInStock)].join(', ')}`);
     }
+    const warnings = [];
     if (blockedMissingHydro.length) {
-      throw new AppError(400, `Hydro test data missing for cylinder(s): ${[...new Set(blockedMissingHydro)].join(', ')}`);
+      warnings.push(`Hydro test data missing for cylinder(s): ${[...new Set(blockedMissingHydro)].join(', ')}`);
     }
     if (blockedHydroOverdue.length) {
-      throw new AppError(400, `Hydro test overdue for cylinder(s): ${[...new Set(blockedHydroOverdue)].join(', ')}`);
+      warnings.push(`Hydro test overdue for cylinder(s): ${[...new Set(blockedHydroOverdue)].join(', ')}`);
     }
 
     const created = [];
@@ -284,10 +285,10 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
       });
     }
 
-    return created;
+    return { created, warnings };
   });
 
-  res.status(201).json({ message: `${results.length} transaction(s) created`, transactions: results });
+  res.status(201).json({ message: `${created.length} transaction(s) created`, warnings, transactions: created });
 }));
 
 // GET /api/transactions/next-bill-number

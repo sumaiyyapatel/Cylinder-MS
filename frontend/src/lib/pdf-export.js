@@ -1,5 +1,5 @@
 import jsPDF from "jspdf";
-import "jspdf-autotable";
+import autoTable from "jspdf-autotable";
 
 // Common PDF settings
 const COMPANY_HEADER = {
@@ -81,8 +81,43 @@ function fmtINR(n) {
   return parseFloat(n).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function presentPDF(doc, fileName, mode = "download") {
+  if (mode === "download") {
+    doc.save(fileName);
+    return;
+  }
+
+  const pdfBlob = doc.output("blob");
+  const blobUrl = URL.createObjectURL(pdfBlob);
+  if (mode === "print") {
+    const opened = window.open(blobUrl, "_blank");
+    if (!opened) {
+      URL.revokeObjectURL(blobUrl);
+      doc.save(fileName);
+      return;
+    }
+    setTimeout(() => {
+      try {
+        opened.focus();
+        opened.print();
+      } catch {}
+    }, 700);
+  } else {
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+}
+
 // ===== BILL CUM CHALLAN PDF =====
-export function generateBillPDF(txn, customer) {
+export function generateBillPDF(txn, customer, options = {}) {
+  const mode = options.mode || "view";
   const doc = new jsPDF();
   const y = addHeader(doc, "BILL CUM CHALLAN", `Bill No: ${txn.billNumber}`);
   
@@ -95,7 +130,7 @@ export function generateBillPDF(txn, customer) {
   doc.text(`Owner: ${txn.cylinderOwner || "COC"}`, 140, y + 4);
   doc.text(`Gas: ${txn.gasCode || "-"}`, 140, y + 10);
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: y + 28,
     head: [["Sr", "Cylinder No", "Cu.M / Kgs", "Status"]],
     body: [[1, txn.cylinderNumber || "-", txn.quantityCum || "-", "OK"]],
@@ -114,11 +149,12 @@ export function generateBillPDF(txn, customer) {
   doc.text("Authorized Signatory: _______________", 120, fy + 20);
 
   addFooter(doc);
-  doc.save(`Bill_${txn.billNumber?.replace(/\//g, "-")}.pdf`);
+  presentPDF(doc, `Bill_${txn.billNumber?.replace(/\//g, "-")}.pdf`, mode);
 }
 
 // ===== ECR PDF =====
-export function generateEcrPDF(ecr, customer) {
+export function generateEcrPDF(ecr, customer, options = {}) {
+  const mode = options.mode || "print";
   const doc = new jsPDF();
   const y = addHeader(doc, "EMPTY CYLINDER RETURN", `ECR No: ${ecr.ecrNumber}`);
 
@@ -129,7 +165,7 @@ export function generateEcrPDF(ecr, customer) {
   doc.text(`Gas: ${ecr.gasCode || "-"}`, 100, y + 18);
   doc.text(`Owner: ${ecr.cylinderOwner || "-"}`, 150, y + 18);
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: y + 24,
     head: [["Issue No", "Issue Date", "Hold Days", "Rent Amount", "Challan", "Vehicle"]],
     body: [[
@@ -147,7 +183,7 @@ export function generateEcrPDF(ecr, customer) {
   });
 
   addFooter(doc);
-  doc.save(`ECR_${ecr.ecrNumber?.replace(/\//g, "-")}.pdf`);
+  presentPDF(doc, `ECR_${ecr.ecrNumber?.replace(/\//g, "-")}.pdf`, mode);
 }
 
 // ===== CHALLAN PDF =====
@@ -182,7 +218,7 @@ export function generateHoldingPDF(holdingData) {
     doc.setFont("helvetica", "bold");
     doc.text(`${group.customerCode} - ${group.customerName} (${group.cylinders.length} cylinders)`, 14, startY + 2);
 
-    doc.autoTable({
+    autoTable(doc, {
       startY: startY + 6,
       head: [["Cylinder No", "Gas", "Owner", "Issued Date", "Bill No", "Hold Days"]],
       body: group.cylinders.map((c) => [
@@ -215,7 +251,7 @@ export function generateDailyReportPDF(dailyData) {
   doc.setFont("helvetica", "bold");
   doc.text(`Issues (${dailyData?.issues?.length || 0})`, 14, y + 4);
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: y + 8,
     head: [["Bill No", "Customer", "Cylinder", "Gas", "Cu.M"]],
     body: (dailyData?.issues || []).map((t) => [
@@ -232,7 +268,7 @@ export function generateDailyReportPDF(dailyData) {
   doc.setFont("helvetica", "bold");
   doc.text(`Returns (${dailyData?.returns?.length || 0})`, 14, ry);
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: ry + 4,
     head: [["ECR No", "Customer", "Cylinder", "Days", "Rent"]],
     body: (dailyData?.returns || []).map((e) => [
@@ -258,7 +294,7 @@ export function generateCustomerStatementPDF(stmtData) {
   doc.setFont("helvetica", "bold");
   doc.text(`Issues (${stmtData?.issues?.length || 0})`, 14, y + 4);
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: y + 8,
     head: [["Bill No", "Date", "Cylinder", "Gas", "Cu.M"]],
     body: (stmtData?.issues || []).map((t) => [
@@ -274,7 +310,7 @@ export function generateCustomerStatementPDF(stmtData) {
   doc.setFont("helvetica", "bold");
   doc.text(`Returns (${stmtData?.returns?.length || 0})`, 14, ry);
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: ry + 4,
     head: [["ECR No", "Date", "Cylinder", "Days", "Rent"]],
     body: (stmtData?.returns || []).map((e) => [
@@ -298,7 +334,7 @@ export function generateTrialBalancePDF(tbData) {
   const totalDr = (tbData || []).reduce((s, r) => s + (r.debit || 0), 0);
   const totalCr = (tbData || []).reduce((s, r) => s + (r.credit || 0), 0);
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: y,
     head: [["Party Code", "Party Name", "Debit (Rs.)", "Credit (Rs.)", "Balance"]],
     body: [
@@ -332,7 +368,7 @@ export function generateLedgerPDF(ledgerData, partyName) {
   const doc = new jsPDF("l");
   const y = addHeader(doc, "LEDGER", partyName ? `Party: ${partyName}` : "All Parties");
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: y,
     head: [["Voucher No", "Date", "Type", "Party", "Particular", "Debit (Rs.)", "Credit (Rs.)", "Balance (Rs.)"]],
     body: (ledgerData || []).map((e) => [
@@ -360,7 +396,7 @@ export function generateTablePDF(title, headers, rows, orientation = "p") {
   const doc = new jsPDF(orientation);
   const y = addHeader(doc, title, "");
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: y,
     head: [headers],
     body: rows,

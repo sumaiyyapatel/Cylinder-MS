@@ -34,6 +34,11 @@ const navGroups = [
       { to: "/ecr", icon: RotateCcw, label: "ECR (Returns)" },
       { to: "/challans", icon: Truck, label: "Challans" },
       { to: "/ledger", icon: BookOpen, label: "Ledger / Vouchers" },
+      { to: "/cash-vouchers", icon: BookOpen, label: "Cash Receipt/Payment" },
+      { to: "/bank-vouchers", icon: BookOpen, label: "Bank Receipt/Payment" },
+      { to: "/payment-receipts", icon: BookOpen, label: "Payment Receipt (R)" },
+      { to: "/debit-note", icon: BookOpen, label: "Debit Note" },
+      { to: "/credit-note", icon: BookOpen, label: "Credit Note" },
     ],
   },
   {

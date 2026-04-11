@@ -224,9 +224,10 @@ export default function TransactionsPage() {
                         >
                           <Send className="w-3.5 h-3.5" />
                         </button>
-                        <button 
+                        <button
+                          type="button"
                           onClick={() => generateBillPDF(t, t.customer)}
-                          title="Download PDF" 
+                          title="View PDF"
                           className="p-1 rounded hover:bg-slate-100 text-blue-600"
                         >
                           <FileText className="w-3.5 h-3.5" />

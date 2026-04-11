@@ -47,9 +47,9 @@ async function main() {
 
   // Users
   const users = [
-    { username: 'admin', fullName: 'Administrator', role: 'ADMIN', password: 'admin123' },
-    { username: 'operator', fullName: 'Operator User', role: 'OPERATOR', password: 'op123' },
-    { username: 'accounts', fullName: 'Accounts User', role: 'ACCOUNTANT', password: 'acc123' },
+    { username: 'admin', fullName: 'Administrator', role: 'ADMIN', password: 'Admin@123' },
+    { username: 'operator', fullName: 'Operator User', role: 'OPERATOR', password: 'Operator@123' },
+    { username: 'accounts', fullName: 'Accounts User', role: 'ACCOUNTANT', password: 'Accounts@123' },
   ];
   for (const u of users) {
     const hash = await bcrypt.hash(u.password, 10);

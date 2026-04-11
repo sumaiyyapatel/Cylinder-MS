@@ -12,6 +12,11 @@ import TransactionsPage from "@/pages/transactions/TransactionsPage";
 import EcrPage from "@/pages/transactions/EcrPage";
 import ChallansPage from "@/pages/transactions/ChallansPage";
 import LedgerPage from "@/pages/accounting/LedgerPage";
+import CashVoucherPage from "@/pages/accounting/CashVoucherPage";
+import BankVoucherPage from "@/pages/accounting/BankVoucherPage";
+import PaymentReceiptPage from "@/pages/accounting/PaymentReceiptPage";
+import DebitNotePage from "@/pages/accounting/DebitNotePage";
+import CreditNotePage from "@/pages/accounting/CreditNotePage";
 import ReportsPage from "@/pages/reports/ReportsPage";
 import SettingsPage from "@/pages/settings/SettingsPage";
 import UsersPage from "@/pages/settings/UsersPage";
@@ -54,6 +59,11 @@ function AppRoutes() {
         <Route path="ecr" element={<EcrPage />} />
         <Route path="challans" element={<ChallansPage />} />
         <Route path="ledger" element={<LedgerPage />} />
+        <Route path="cash-vouchers" element={<CashVoucherPage />} />
+        <Route path="bank-vouchers" element={<BankVoucherPage />} />
+        <Route path="payment-receipts" element={<PaymentReceiptPage />} />
+        <Route path="debit-note" element={<DebitNotePage />} />
+        <Route path="credit-note" element={<CreditNotePage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="users" element={<UsersPage />} />
