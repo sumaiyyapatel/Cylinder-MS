@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { formatDate, formatINR } from "@/lib/utils-format";
@@ -18,6 +19,7 @@ import {
 } from "@/lib/pdf-export";
 
 export default function ReportsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [activeReport, setActiveReport] = useState("holding");
   const [filters, setFilters] = useState({
     customerId: "all",
@@ -27,6 +29,21 @@ export default function ReportsPage() {
     dateTo: "",
     date: new Date().toISOString().split("T")[0],
   });
+
+  // Handle URL parameters
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    const filter = searchParams.get("filter");
+    
+    if (tab) {
+      setActiveReport(tab);
+    }
+    
+    if (filter === "overdue") {
+      // For overdue filter, we need to modify the holding query to only show overdue cylinders
+      // This will be handled in the query itself
+    }
+  }, [searchParams]);
 
   const normalizeSelectValue = (value) => {
     if (!value || value === "all") return undefined;
@@ -43,8 +60,14 @@ export default function ReportsPage() {
   const { data: gasTypes } = useQuery({ queryKey: ["gasTypes"], queryFn: () => api.get("/gas-types").then(r => r.data) });
 
   const { data: holdingData, isLoading: holdingLoading } = useQuery({
-    queryKey: ["report-holding", customerIdParam, gasCodeParam],
-    queryFn: () => api.get("/reports/holding-statement", { params: { customerId: customerIdParam, gasCode: gasCodeParam } }).then(r => r.data),
+    queryKey: ["report-holding", customerIdParam, gasCodeParam, searchParams.get("filter")],
+    queryFn: () => api.get("/reports/holding-statement", { 
+      params: { 
+        customerId: customerIdParam, 
+        gasCode: gasCodeParam,
+        filter: searchParams.get("filter")
+      } 
+    }).then(r => r.data),
     enabled: activeReport === "holding",
   });
 
@@ -324,7 +347,7 @@ export default function ReportsPage() {
       {/* Holding Statement */}
       {activeReport === "holding" && (
         <Card className="border border-slate-200 shadow-sm">
-          <CardHeader className="pb-2"><CardTitle className="text-base" style={{ fontFamily: 'var(--font-heading)' }}>Holding Statement</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-base" style={{ fontFamily: 'var(--font-heading)' }}>Holding Statement{searchParams.get("filter") === "overdue" ? " - Overdue Cylinders" : ""}</CardTitle></CardHeader>
           <CardContent>
             {holdingLoading ? <div className="py-8 text-center text-slate-400">Loading...</div> :
               !holdingData?.length ? <div className="py-8 text-center text-slate-400">No holdings found</div> :

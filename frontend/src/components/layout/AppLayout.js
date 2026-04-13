@@ -3,6 +3,7 @@ import { Outlet, NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { getFinancialYear, formatDate } from "@/lib/utils-format";
 import api from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, Users, Package, Flame, MapPin, DollarSign, FileText,
   ArrowLeftRight, RotateCcw, Truck, BookOpen, BarChart3, Settings, UserCog,
@@ -34,11 +35,16 @@ const navGroups = [
       { to: "/ecr", icon: RotateCcw, label: "ECR (Returns)" },
       { to: "/challans", icon: Truck, label: "Challans" },
       { to: "/ledger", icon: BookOpen, label: "Ledger / Vouchers" },
-      { to: "/cash-vouchers", icon: BookOpen, label: "Cash Receipt/Payment" },
-      { to: "/bank-vouchers", icon: BookOpen, label: "Bank Receipt/Payment" },
-      { to: "/payment-receipts", icon: BookOpen, label: "Payment Receipt (R)" },
-      { to: "/debit-note", icon: BookOpen, label: "Debit Note" },
-      { to: "/credit-note", icon: BookOpen, label: "Credit Note" },
+    ],
+  },
+  {
+    label: "Accounting",
+    items: [
+      { to: "/accounting/cash-voucher", icon: BookOpen, label: "Cash Voucher" },
+      { to: "/accounting/bank-voucher", icon: BookOpen, label: "Bank Voucher" },
+      { to: "/accounting/credit-note", icon: BookOpen, label: "Credit Note" },
+      { to: "/accounting/debit-note", icon: BookOpen, label: "Debit Note" },
+      { to: "/accounting/payment-receipt", icon: BookOpen, label: "Payment Receipt" },
     ],
   },
   {
@@ -62,6 +68,15 @@ export default function AppLayout() {
   const [collapsed, setCollapsed] = useState({});
   const [mobileOpen, setMobileOpen] = useState(false);
   const [companyName, setCompanyName] = useState("[COMPANY NAME]");
+
+  // Fetch unresolved alerts count
+  const { data: alertsData } = useQuery({
+    queryKey: ["alerts-unresolved"],
+    queryFn: () => api.get("/alerts", { params: { resolved: false } }).then(r => r.data),
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+
+  const unresolvedAlertsCount = alertsData?.length || 0;
 
   useEffect(() => {
     api.get("/settings").then(({ data }) => {
@@ -130,7 +145,12 @@ export default function AppLayout() {
                     }
                   >
                     <item.icon className="w-4 h-4 flex-shrink-0" />
-                    <span className="truncate">{item.label}</span>
+                    <span className="truncate flex-1">{item.label}</span>
+                    {item.label === "Reports" && unresolvedAlertsCount > 0 && (
+                      <span className="bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full font-medium min-w-[18px] text-center">
+                        {unresolvedAlertsCount > 99 ? "99+" : unresolvedAlertsCount}
+                      </span>
+                    )}
                   </NavLink>
                 ))}
               </div>

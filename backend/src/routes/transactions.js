@@ -47,13 +47,52 @@ router.get('/', authenticate, asyncHandler(async (req, res) => {
       skip,
       take: parseInt(limit, 10),
       orderBy: { billDate: 'desc' },
-      include: { customer: { select: { id: true, code: true, name: true, phone: true } } },
+      include: { 
+        customer: { select: { id: true, code: true, name: true, phone: true, gstin: true } },
+        cylinder: { select: { gasCode: true }, include: { gasType: { select: { hsnCode: true, gstRate: true } } } },
+      },
     }),
     prisma.transaction.count({ where }),
   ]);
 
+  // Enrich transactions with GST data from sales book
+  const enrichedTransactions = await Promise.all(
+    transactions.map(async (txn) => {
+      const salesBookEntry = await prisma.salesBook.findFirst({
+        where: { billNumber: txn.billNumber },
+        select: { subtotal: true, gstAmount: true, totalAmount: true, gstCode: true, rate: true },
+      });
+
+      // Get company GSTIN
+      const companyGstinSetting = await prisma.companySetting.findUnique({
+        where: { key: 'company_gstin' },
+        select: { value: true },
+      });
+
+      let gstBreakup = null;
+      if (salesBookEntry && salesBookEntry.subtotal && salesBookEntry.gstAmount) {
+        const gstMode = getGstMode(companyGstinSetting?.value, txn.customer.gstin);
+        const gstRate = salesBookEntry.gstCode ? parseInt(salesBookEntry.gstCode.replace(/^[IS]/, '')) : 0;
+        
+        gstBreakup = calculateGstBreakup(
+          parseFloat(salesBookEntry.subtotal),
+          gstRate,
+          gstMode
+        );
+      }
+
+      return {
+        ...txn,
+        salesBook: salesBookEntry,
+        gstBreakup,
+        companyGstin: companyGstinSetting?.value,
+        hsnCode: txn.cylinder?.gasType?.hsnCode,
+      };
+    })
+  );
+
   res.json({
-    data: transactions,
+    data: enrichedTransactions,
     total,
     page: parseInt(page, 10),
     totalPages: Math.ceil(total / parseInt(limit, 10)),
@@ -289,6 +328,25 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
   });
 
   res.status(201).json({ message: `${created.length} transaction(s) created`, warnings, transactions: created });
+}));
+
+// PATCH /api/transactions/:id/whatsapp-sent
+router.patch('/:id/whatsapp-sent', authenticate, asyncHandler(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) {
+    throw new AppError(400, 'Invalid transaction id');
+  }
+
+  const transaction = await prisma.transaction.update({
+    where: { id },
+    data: { whatsappSent: true },
+  });
+
+  if (!transaction) {
+    throw new AppError(404, 'Transaction not found');
+  }
+
+  res.json({ message: 'WhatsApp marked sent', transaction });
 }));
 
 // GET /api/transactions/next-bill-number

@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { formatINR, formatDate } from "@/lib/utils-format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,6 +9,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 const COLORS = ["#2563EB", "#16A34A", "#F59E0B", "#EF4444", "#8B5CF6", "#06B6D4"];
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard"],
     queryFn: () => api.get("/dashboard").then((r) => r.data),
@@ -33,7 +35,14 @@ export default function DashboardPage() {
     { label: "Cylinders Returned", value: stats.cylindersReturnedToday || 0, icon: RotateCcw, color: "text-green-600", bg: "bg-green-50" },
     { label: "Cash Collected Today", value: formatINR(stats.cashCollectedToday), icon: IndianRupee, color: "text-emerald-600", bg: "bg-emerald-50" },
     { label: "Pending ECRs", value: stats.pendingEcrs || 0, icon: Clock, color: "text-amber-600", bg: "bg-amber-50" },
-    { label: "Overdue Cylinders", value: stats.overdueCylinders || 0, icon: AlertTriangle, color: "text-red-600", bg: "bg-red-50" },
+    { 
+      label: "Overdue Cylinders", 
+      value: stats.overdueCylinders || 0, 
+      icon: AlertTriangle, 
+      color: "text-red-600", 
+      bg: "bg-red-50",
+      onClick: () => navigate("/reports?tab=holding-statement&filter=overdue")
+    },
     { label: "Outstanding Payments", value: formatINR(stats.outstandingPayments), icon: CreditCard, color: "text-slate-600", bg: "bg-slate-100" },
   ];
 
@@ -68,7 +77,11 @@ export default function DashboardPage() {
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="dashboard-stats">
         {statCards.map((s) => (
-          <Card key={s.label} className="border border-slate-200 shadow-sm">
+          <Card 
+            key={s.label} 
+            className={`border border-slate-200 shadow-sm ${s.onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
+            onClick={s.onClick}
+          >
             <CardContent className="p-4 flex items-center gap-4">
               <div className={`w-10 h-10 rounded-md ${s.bg} flex items-center justify-center flex-shrink-0`}>
                 <s.icon className={`w-5 h-5 ${s.color}`} />

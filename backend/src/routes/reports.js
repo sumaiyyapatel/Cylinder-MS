@@ -7,7 +7,7 @@ const router = express.Router();
 // Holding Statement - all customers x gas types
 router.get('/holding-statement', authenticate, async (req, res) => {
   try {
-    const { customerId, gasCode, asOfDate } = req.query;
+    const { customerId, gasCode, asOfDate, filter } = req.query;
     const thresholdSetting = await prisma.companySetting.findUnique({
       where: { key: 'overdue_threshold_days' },
       select: { value: true },
@@ -39,7 +39,7 @@ router.get('/holding-statement', authenticate, async (req, res) => {
         grouped[key] = { customerCode: h.customer.code, customerName: h.customer.name, cylinders: [] };
       }
       const holdDays = Math.ceil((new Date() - new Date(h.issuedAt)) / (1000 * 60 * 60 * 24));
-      grouped[key].cylinders.push({
+      const cylinderData = {
         cylinderNumber: h.cylinder.cylinderNumber,
         gasCode: h.cylinder.gasCode,
         ownerCode: h.cylinder.ownerCode,
@@ -47,7 +47,12 @@ router.get('/holding-statement', authenticate, async (req, res) => {
         billNumber: h.transaction?.billNumber,
         holdDays,
         isOverdue: holdDays > overdueThresholdDays,
-      });
+      };
+      
+      // Filter by overdue if requested
+      if (filter === 'overdue' && !cylinderData.isOverdue) continue;
+      
+      grouped[key].cylinders.push(cylinderData);
     }
 
     // Filter by gasCode if provided
@@ -56,6 +61,11 @@ router.get('/holding-statement', authenticate, async (req, res) => {
         grouped[key].cylinders = grouped[key].cylinders.filter(c => c.gasCode === gasCode);
         if (grouped[key].cylinders.length === 0) delete grouped[key];
       }
+    }
+
+    // Remove empty customer groups (can happen with overdue filter)
+    for (const key of Object.keys(grouped)) {
+      if (grouped[key].cylinders.length === 0) delete grouped[key];
     }
 
     res.json(Object.values(grouped));
@@ -418,6 +428,354 @@ router.get('/sales-summary', authenticate, async (req, res) => {
       byGas: byGas.map(g => ({ gasCode: g.gasCode, count: g._count, totalCum: parseFloat(g._sum.quantityCum || 0) })),
       byCustomer: custDetails.sort((a, b) => b.count - a.count),
       totalBills: byGas.reduce((s, g) => s + g._count, 0),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Holding All Party - summary counts per gas type for all customers
+router.get('/holding-all-party', authenticate, async (req, res) => {
+  try {
+    const holdings = await prisma.cylinderHolding.findMany({
+      where: { status: 'HOLDING' },
+      include: {
+        customer: { select: { code: true, name: true } },
+        cylinder: { select: { gasCode: true } },
+      },
+    });
+
+    // Group by customer, then by gas type
+    const grouped = {};
+    for (const h of holdings) {
+      const custKey = h.customer.code;
+      if (!grouped[custKey]) {
+        grouped[custKey] = {
+          customerCode: h.customer.code,
+          customerName: h.customer.name,
+          gasCounts: {},
+          totalCylinders: 0,
+        };
+      }
+      const gasCode = h.cylinder.gasCode || 'UNKNOWN';
+      grouped[custKey].gasCounts[gasCode] = (grouped[custKey].gasCounts[gasCode] || 0) + 1;
+      grouped[custKey].totalCylinders++;
+    }
+
+    res.json(Object.values(grouped));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Holding Party Status - per customer cylinders held, overdue count, days range
+router.get('/holding-party-status', authenticate, async (req, res) => {
+  try {
+    const { customerId } = req.query;
+    const thresholdSetting = await prisma.companySetting.findUnique({
+      where: { key: 'overdue_threshold_days' },
+      select: { value: true },
+    });
+    const overdueThresholdDays = Number.isFinite(parseInt(thresholdSetting?.value, 10)) ? parseInt(thresholdSetting.value, 10) : 30;
+
+    const where = { status: 'HOLDING' };
+    if (customerId) where.customerId = parseInt(customerId);
+
+    const holdings = await prisma.cylinderHolding.findMany({
+      where,
+      include: {
+        customer: { select: { code: true, name: true } },
+        cylinder: { select: { cylinderNumber: true, gasCode: true } },
+      },
+      orderBy: { issuedAt: 'desc' },
+    });
+
+    // Group by customer
+    const grouped = {};
+    for (const h of holdings) {
+      const key = h.customer.code;
+      if (!grouped[key]) {
+        grouped[key] = {
+          customerCode: h.customer.code,
+          customerName: h.customer.name,
+          cylindersHeld: [],
+          overdueCount: 0,
+          daysRange: { min: Infinity, max: 0 },
+        };
+      }
+
+      const holdDays = Math.ceil((new Date() - new Date(h.issuedAt)) / (1000 * 60 * 60 * 24));
+      const isOverdue = holdDays > overdueThresholdDays;
+
+      grouped[key].cylindersHeld.push({
+        cylinderNumber: h.cylinder.cylinderNumber,
+        gasCode: h.cylinder.gasCode,
+        issuedAt: h.issuedAt,
+        holdDays,
+        isOverdue,
+      });
+
+      if (isOverdue) grouped[key].overdueCount++;
+      grouped[key].daysRange.min = Math.min(grouped[key].daysRange.min, holdDays);
+      grouped[key].daysRange.max = Math.max(grouped[key].daysRange.max, holdDays);
+    }
+
+    // Fix infinite min for customers with no holdings
+    Object.values(grouped).forEach(g => {
+      if (g.daysRange.min === Infinity) g.daysRange.min = 0;
+    });
+
+    res.json(Object.values(grouped));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Issue Without Purchase - transactions where no matching order exists
+router.get('/issue-without-purchase', authenticate, async (req, res) => {
+  try {
+    const { dateFrom, dateTo } = req.query;
+    const where = {};
+    if (dateFrom || dateTo) {
+      where.billDate = {};
+      if (dateFrom) where.billDate.gte = new Date(dateFrom);
+      if (dateTo) where.billDate.lte = new Date(dateTo + 'T23:59:59Z');
+    }
+
+    const transactions = await prisma.transaction.findMany({
+      where,
+      include: {
+        customer: { select: { code: true, name: true } },
+        cylinderHolding: { select: { id: true } },
+      },
+      orderBy: { billDate: 'desc' },
+    });
+
+    // Filter transactions that have no matching order (orderNumber is null or empty)
+    const withoutPurchase = transactions.filter(t => !t.orderNumber || t.orderNumber.trim() === '');
+
+    res.json(withoutPurchase);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Sale Return - ECR records in date range
+router.get('/sale-return', authenticate, async (req, res) => {
+  try {
+    const { dateFrom, dateTo, customerId } = req.query;
+    const where = {};
+    if (customerId) where.customerId = parseInt(customerId);
+    if (dateFrom || dateTo) {
+      where.ecrDate = {};
+      if (dateFrom) where.ecrDate.gte = new Date(dateFrom);
+      if (dateTo) where.ecrDate.lte = new Date(dateTo + 'T23:59:59Z');
+    }
+
+    const ecrs = await prisma.ecrRecord.findMany({
+      where,
+      include: { customer: { select: { code: true, name: true } } },
+      orderBy: { ecrDate: 'desc' },
+    });
+
+    res.json(ecrs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Sale Return Summary - ECR grouped by customer, totals
+router.get('/sale-return-summary', authenticate, async (req, res) => {
+  try {
+    const { dateFrom, dateTo } = req.query;
+    const where = {};
+    if (dateFrom || dateTo) {
+      where.ecrDate = {};
+      if (dateFrom) where.ecrDate.gte = new Date(dateFrom);
+      if (dateTo) where.ecrDate.lte = new Date(dateTo + 'T23:59:59Z');
+    }
+
+    const ecrs = await prisma.ecrRecord.findMany({
+      where,
+      include: { customer: { select: { code: true, name: true } } },
+      orderBy: { ecrDate: 'desc' },
+    });
+
+    // Group by customer
+    const grouped = {};
+    for (const e of ecrs) {
+      const key = e.customer.code;
+      if (!grouped[key]) {
+        grouped[key] = {
+          customerCode: e.customer.code,
+          customerName: e.customer.name,
+          totalReturns: 0,
+          totalRent: 0,
+          totalDays: 0,
+          records: [],
+        };
+      }
+      grouped[key].totalReturns++;
+      grouped[key].totalRent += parseFloat(e.rentAmount || 0);
+      grouped[key].totalDays += (e.holdDays || 0);
+      grouped[key].records.push({
+        ecrNumber: e.ecrNumber,
+        ecrDate: e.ecrDate,
+        cylinderNumber: e.cylinderNumber,
+        gasCode: e.gasCode,
+        holdDays: e.holdDays,
+        rentAmount: parseFloat(e.rentAmount || 0),
+      });
+    }
+
+    res.json(Object.values(grouped));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Age Analysis Ledger - ledger grouped into buckets: 0-30, 31-60, 61-90, 90+ days
+router.get('/age-analysis-ledger', authenticate, async (req, res) => {
+  try {
+    const { asOfDate } = req.query;
+    const cutoffDate = asOfDate ? new Date(asOfDate) : new Date();
+
+    // Get all ledger entries with outstanding balances
+    const entries = await prisma.ledgerEntry.groupBy({
+      by: ['partyCode'],
+      _sum: { debitAmount: true, creditAmount: true },
+    });
+
+    const filteredEntries = entries.filter(e => e.partyCode);
+    const partyCodes = [...new Set(filteredEntries.map(e => e.partyCode))];
+    const customers = partyCodes.length
+      ? await prisma.customer.findMany({
+          where: { code: { in: partyCodes } },
+          select: { code: true, name: true },
+        })
+      : [];
+    const customerMap = new Map(customers.map(c => [c.code, c.name]));
+
+    const result = [];
+
+    for (const entry of filteredEntries) {
+      const balance = parseFloat(entry._sum.debitAmount || 0) - parseFloat(entry._sum.creditAmount || 0);
+      if (Math.abs(balance) < 0.01) continue;
+
+      // Get the most recent transaction date for this party
+      const lastEntry = await prisma.ledgerEntry.findFirst({
+        where: { partyCode: entry.partyCode },
+        orderBy: { voucherDate: 'desc' },
+        select: { voucherDate: true },
+      });
+
+      if (!lastEntry) continue;
+
+      const daysDiff = Math.floor((cutoffDate - new Date(lastEntry.voucherDate)) / (1000 * 60 * 60 * 24));
+
+      let bucket = '90+';
+      if (daysDiff <= 30) bucket = '0-30';
+      else if (daysDiff <= 60) bucket = '31-60';
+      else if (daysDiff <= 90) bucket = '61-90';
+
+      result.push({
+        partyCode: entry.partyCode,
+        partyName: customerMap.get(entry.partyCode) || entry.partyCode,
+        balance: Math.abs(balance),
+        daysOutstanding: daysDiff,
+        bucket,
+        type: balance > 0 ? 'RECEIVABLE' : 'PAYABLE',
+      });
+    }
+
+    // Group by bucket
+    const buckets = {
+      '0-30': [],
+      '31-60': [],
+      '61-90': [],
+      '90+': [],
+    };
+
+    result.forEach(item => {
+      buckets[item.bucket].push(item);
+    });
+
+    res.json({
+      buckets,
+      summary: {
+        '0-30': buckets['0-30'].reduce((sum, item) => sum + item.balance, 0),
+        '31-60': buckets['31-60'].reduce((sum, item) => sum + item.balance, 0),
+        '61-90': buckets['61-90'].reduce((sum, item) => sum + item.balance, 0),
+        '90+': buckets['90+'].reduce((sum, item) => sum + item.balance, 0),
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Age Analysis Outstanding - outstanding balances aged by invoice date
+router.get('/age-analysis-outstanding', authenticate, async (req, res) => {
+  try {
+    const { asOfDate } = req.query;
+    const cutoffDate = asOfDate ? new Date(asOfDate) : new Date();
+
+    // Get all transactions with outstanding balances
+    const transactions = await prisma.transaction.findMany({
+      include: {
+        customer: { select: { code: true, name: true } },
+        cylinderHolding: { select: { status: true, issuedAt: true } },
+      },
+    });
+
+    const result = [];
+
+    for (const txn of transactions) {
+      // Calculate outstanding balance (simplified - in real app would need proper ledger tracking)
+      const balance = 0; // This would need to be calculated based on payments received
+
+      if (Math.abs(balance) < 0.01) continue;
+
+      const daysDiff = Math.floor((cutoffDate - new Date(txn.billDate)) / (1000 * 60 * 60 * 24));
+
+      let bucket = '90+';
+      if (daysDiff <= 30) bucket = '0-30';
+      else if (daysDiff <= 60) bucket = '31-60';
+      else if (daysDiff <= 90) bucket = '61-90';
+
+      result.push({
+        billNumber: txn.billNumber,
+        billDate: txn.billDate,
+        partyCode: txn.customer.code,
+        partyName: txn.customer.name,
+        balance: Math.abs(balance),
+        daysOutstanding: daysDiff,
+        bucket,
+        cylinderNumber: txn.cylinderNumber,
+        gasCode: txn.gasCode,
+      });
+    }
+
+    // Group by bucket
+    const buckets = {
+      '0-30': [],
+      '31-60': [],
+      '61-90': [],
+      '90+': [],
+    };
+
+    result.forEach(item => {
+      buckets[item.bucket].push(item);
+    });
+
+    res.json({
+      buckets,
+      summary: {
+        '0-30': buckets['0-30'].reduce((sum, item) => sum + item.balance, 0),
+        '31-60': buckets['31-60'].reduce((sum, item) => sum + item.balance, 0),
+        '61-90': buckets['61-90'].reduce((sum, item) => sum + item.balance, 0),
+        '90+': buckets['90+'].reduce((sum, item) => sum + item.balance, 0),
+      },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

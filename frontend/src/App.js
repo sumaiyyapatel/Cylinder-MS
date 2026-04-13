@@ -64,6 +64,11 @@ function AppRoutes() {
         <Route path="payment-receipts" element={<PaymentReceiptPage />} />
         <Route path="debit-note" element={<DebitNotePage />} />
         <Route path="credit-note" element={<CreditNotePage />} />
+        <Route path="accounting/cash-voucher" element={<CashVoucherPage />} />
+        <Route path="accounting/bank-voucher" element={<BankVoucherPage />} />
+        <Route path="accounting/payment-receipt" element={<PaymentReceiptPage />} />
+        <Route path="accounting/debit-note" element={<DebitNotePage />} />
+        <Route path="accounting/credit-note" element={<CreditNotePage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="users" element={<UsersPage />} />

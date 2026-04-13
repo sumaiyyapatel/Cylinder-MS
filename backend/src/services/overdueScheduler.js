@@ -14,6 +14,7 @@ function startOverdueCylinderScheduler() {
         const cutoffDate = new Date();
         cutoffDate.setDate(cutoffDate.getDate() - thresholdDays);
 
+        // First, update overdue status
         await prisma.$transaction([
           prisma.cylinderHolding.updateMany({
             where: {
@@ -30,6 +31,45 @@ function startOverdueCylinderScheduler() {
             data: { isOverdue: false },
           }),
         ]);
+
+        // Now create alerts for newly overdue holdings
+        const newlyOverdueHoldings = await prisma.cylinderHolding.findMany({
+          where: {
+            status: "HOLDING",
+            isOverdue: true,
+            alertSentAt: null, // Only create alerts for holdings that don't have alerts yet
+          },
+          include: {
+            cylinder: { select: { cylinderNumber: true } },
+          },
+        });
+
+        if (newlyOverdueHoldings.length > 0) {
+          const alertData = newlyOverdueHoldings.map(h => {
+            const days = Math.ceil((new Date() - new Date(h.issuedAt)) / (1000 * 60 * 60 * 24));
+            return {
+              type: 'OVERDUE_CYLINDER',
+              customerId: h.customerId,
+              cylinderId: h.cylinderId,
+              message: `Cylinder ${h.cylinder?.cylinderNumber || 'Unknown'} held for ${days} days`,
+              sentVia: 'SYSTEM',
+            };
+          });
+
+          await prisma.alert.createMany({
+            data: alertData,
+          });
+
+          // Mark that alerts were sent for these holdings
+          await prisma.cylinderHolding.updateMany({
+            where: {
+              id: { in: newlyOverdueHoldings.map(h => h.id) },
+            },
+            data: {
+              alertSentAt: new Date(),
+            },
+          });
+        }
       } catch (err) {
         console.error("Overdue scheduler failed:", err.message);
       }

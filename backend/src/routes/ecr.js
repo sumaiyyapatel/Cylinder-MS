@@ -204,7 +204,7 @@ router.get('/cylinder-info/:cylinderNumber', authenticate, asyncHandler(async (r
 
   let holdDays = 0;
   if (holding) {
-    holdDays = Math.ceil((new Date() - new Date(holding.issuedAt)) / (1000 * 60 * 60 * 24));
+    holdDays = calculateHoldDays(holding.issuedAt, new Date());
   }
 
   res.json({

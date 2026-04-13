@@ -30,10 +30,14 @@ export default function SettingsPage() {
 
   const saveMut = useMutation({
     mutationFn: (d) => api.put("/settings", d),
-    onSuccess: (res) => { 
-      qc.invalidateQueries({ queryKey: ["settings"] }); 
-      localStorage.setItem("companySettings", JSON.stringify(settings));
-      toast.success("Settings saved"); 
+    onSuccess: (res) => {
+      const savedSettings = res.data;
+      qc.invalidateQueries({ queryKey: ["settings"] });
+      if (savedSettings) {
+        setSettings(savedSettings);
+        localStorage.setItem("companySettings", JSON.stringify(savedSettings));
+      }
+      toast.success("Settings saved");
     },
     onError: (e) => toast.error(e.response?.data?.error || "Failed"),
   });

@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, Trash2, Send, FileText } from "lucide-react";
+import { Plus, Trash2, Send, FileText, CheckCircle } from "lucide-react";
 import { generateBillPDF } from "@/lib/pdf-export";
 
 export default function TransactionsPage() {
@@ -76,7 +76,7 @@ export default function TransactionsPage() {
     return digits;
   };
 
-  const handleSendWhatsApp = (txn) => {
+  const handleSendWhatsApp = async (txn) => {
     const customer = txn.customer;
     const phone = normalizePhoneForWhatsApp(customer?.phone);
 
@@ -93,7 +93,19 @@ export default function TransactionsPage() {
     ].join("\n");
 
     const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-    window.open(waUrl, "_blank", "noopener,noreferrer");
+    const opened = window.open(waUrl, "_blank", "noopener,noreferrer");
+    if (!opened) {
+      toast.error("Unable to open WhatsApp. Please allow popups.");
+      return;
+    }
+
+    try {
+      await api.patch(`/transactions/${txn.id}/whatsapp-sent`);
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      toast.success("WhatsApp marked sent");
+    } catch (e) {
+      toast.error(e.response?.data?.error || "Failed to mark WhatsApp sent");
+    }
   };
 
   const customerName = customers?.data?.find(c => c.id === parseInt(form.customerId))?.name || "";
@@ -216,6 +228,11 @@ export default function TransactionsPage() {
                     <td className="px-3 py-2">{t.quantityCum || "-"}</td>
                     <td className="px-3 py-2 text-right">
                       <div className="flex items-center justify-end gap-1">
+                        {t.whatsappSent && (
+                          <span className="inline-flex items-center text-green-600" title="WhatsApp sent">
+                            <CheckCircle className="w-4 h-4" />
+                          </span>
+                        )}
                         <button
                           type="button"
                           onClick={() => handleSendWhatsApp(t)}

@@ -81,6 +81,51 @@ function fmtINR(n) {
   return parseFloat(n).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Convert number to words (Indian numbering system)
+function numberToWords(num) {
+  if (num === 0) return "Zero";
+
+  const ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"];
+  const teens = ["Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+  const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+
+  function convertLessThanThousand(n) {
+    if (n === 0) return "";
+    if (n < 10) return ones[n];
+    if (n < 20) return teens[n - 10];
+    if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 !== 0 ? " " + ones[n % 10] : "");
+    return ones[Math.floor(n / 100)] + " Hundred" + (n % 100 !== 0 ? " " + convertLessThanThousand(n % 100) : "");
+  }
+
+  function convert(num) {
+    if (num === 0) return "";
+
+    let result = "";
+    let crore = Math.floor(num / 10000000);
+    let lakh = Math.floor((num % 10000000) / 100000);
+    let thousand = Math.floor((num % 100000) / 1000);
+    let remainder = num % 1000;
+
+    if (crore > 0) result += convertLessThanThousand(crore) + " Crore ";
+    if (lakh > 0) result += convertLessThanThousand(lakh) + " Lakh ";
+    if (thousand > 0) result += convertLessThanThousand(thousand) + " Thousand ";
+    if (remainder > 0) result += convertLessThanThousand(remainder);
+
+    return result.trim();
+  }
+
+  let rupees = Math.floor(num);
+  let paise = Math.round((num - rupees) * 100);
+
+  let result = "Rupees " + convert(rupees);
+  if (paise > 0) {
+    result += " and " + convertLessThanThousand(paise) + " Paise";
+  }
+  result += " Only";
+
+  return result;
+}
+
 function presentPDF(doc, fileName, mode = "download") {
   if (mode === "download") {
     doc.save(fileName);
@@ -129,11 +174,23 @@ export function generateBillPDF(txn, customer, options = {}) {
   doc.text(`GSTIN: ${customer?.gstin || "-"}`, 14, y + 22);
   doc.text(`Owner: ${txn.cylinderOwner || "COC"}`, 140, y + 4);
   doc.text(`Gas: ${txn.gasCode || "-"}`, 140, y + 10);
+  doc.text(`HSN: ${txn.hsnCode || "-"}`, 140, y + 16);
 
+  // Item table with GST breakdown
+  const gstBreakup = txn.gstBreakup;
+  const salesBook = txn.salesBook;
+  
   autoTable(doc, {
     startY: y + 28,
-    head: [["Sr", "Cylinder No", "Cu.M / Kgs", "Status"]],
-    body: [[1, txn.cylinderNumber || "-", txn.quantityCum || "-", "OK"]],
+    head: [["Sr", "Cylinder No", "Cu.M / Kgs", "Rate", "Amount", "Status"]],
+    body: [[
+      1, 
+      txn.cylinderNumber || "-", 
+      txn.quantityCum || "-", 
+      salesBook?.rate ? fmtINR(salesBook.rate) : "-",
+      salesBook?.subtotal ? fmtINR(salesBook.subtotal) : "-",
+      "OK"
+    ]],
     theme: "grid",
     headStyles: { fillColor: [37, 99, 235], fontSize: 9 },
     styles: { fontSize: 9, cellPadding: 3 },
@@ -141,12 +198,38 @@ export function generateBillPDF(txn, customer, options = {}) {
   });
 
   const fy = doc.lastAutoTable.finalY + 10;
-  doc.text("Total Cylinders: 1", 14, fy);
-  doc.text(`Total Cu.M: ${txn.quantityCum || "0"}`, 80, fy);
   
+  // GST Breakdown
+  if (gstBreakup) {
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.text("GST Details:", 14, fy);
+    
+    const gstY = fy + 6;
+    doc.setFont("helvetica", "normal");
+    
+    if (gstBreakup.gstMode === "INTRA") {
+      doc.text(`CGST (${gstBreakup.gstRate/2}%): ${fmtINR(gstBreakup.cgstAmount)}`, 14, gstY);
+      doc.text(`SGST (${gstBreakup.gstRate/2}%): ${fmtINR(gstBreakup.sgstAmount)}`, 80, gstY);
+    } else {
+      doc.text(`IGST (${gstBreakup.gstRate}%): ${fmtINR(gstBreakup.igstAmount)}`, 14, gstY);
+    }
+    
+    doc.setFont("helvetica", "bold");
+    doc.text(`Taxable Amount: ${fmtINR(gstBreakup.taxableAmount)}`, 14, gstY + 6);
+    doc.text(`GST Amount: ${fmtINR(gstBreakup.gstAmount)}`, 80, gstY + 6);
+    doc.text(`Total Amount: ${fmtINR(gstBreakup.totalAmount)}`, 14, gstY + 12);
+    
+    // Total in words
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    const words = numberToWords(gstBreakup.totalAmount);
+    doc.text(`Amount in Words: ${words}`, 14, gstY + 18);
+  }
+
   doc.setFontSize(8);
-  doc.text("Receiver's Signature: _______________", 14, fy + 20);
-  doc.text("Authorized Signatory: _______________", 120, fy + 20);
+  doc.text("Receiver's Signature: _______________", 14, fy + (gstBreakup ? 35 : 20));
+  doc.text("Authorized Signatory: _______________", 120, fy + (gstBreakup ? 35 : 20));
 
   addFooter(doc);
   presentPDF(doc, `Bill_${txn.billNumber?.replace(/\//g, "-")}.pdf`, mode);
