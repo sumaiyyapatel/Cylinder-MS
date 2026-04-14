@@ -165,6 +165,7 @@ export function generateBillPDF(txn, customer, options = {}) {
   const mode = options.mode || "view";
   const doc = new jsPDF();
   const y = addHeader(doc, "BILL CUM CHALLAN", `Bill No: ${txn.billNumber}`);
+  const items = txn.items || [];
   
   doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
@@ -183,14 +184,14 @@ export function generateBillPDF(txn, customer, options = {}) {
   autoTable(doc, {
     startY: y + 28,
     head: [["Sr", "Cylinder No", "Cu.M / Kgs", "Rate", "Amount", "Status"]],
-    body: [[
-      1, 
-      txn.cylinderNumber || "-", 
-      txn.quantityCum || "-", 
+    body: (items.length ? items : [txn]).map((item, index) => [
+      index + 1,
+      item.cylinderNumber || "-",
+      item.quantityCum || "-",
       salesBook?.rate ? fmtINR(salesBook.rate) : "-",
-      salesBook?.subtotal ? fmtINR(salesBook.subtotal) : "-",
+      item.quantityCum && salesBook?.rate ? fmtINR((parseFloat(item.quantityCum) || 0) * parseFloat(salesBook.rate)) : "-",
       "OK"
-    ]],
+    ]),
     theme: "grid",
     headStyles: { fillColor: [37, 99, 235], fontSize: 9 },
     styles: { fontSize: 9, cellPadding: 3 },

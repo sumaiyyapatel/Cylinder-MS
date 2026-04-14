@@ -1,5 +1,6 @@
 const cron = require("node-cron");
 const prisma = require("../lib/prisma");
+const { markOverdueCylinders } = require('./hydroService');
 
 function startOverdueCylinderScheduler() {
   return cron.schedule(
@@ -69,6 +70,12 @@ function startOverdueCylinderScheduler() {
               alertSentAt: new Date(),
             },
           });
+        }
+        // Also check for hydro test due cylinders and create alerts
+        try {
+          await markOverdueCylinders(prisma);
+        } catch (err) {
+          console.error('Hydro due check failed:', err.message);
         }
       } catch (err) {
         console.error("Overdue scheduler failed:", err.message);

@@ -18,24 +18,29 @@ router.get('/', authenticate, authorize('ADMIN', 'MANAGER', 'ACCOUNTANT'), async
     if (dateFrom) where.voucherDate.gte = new Date(dateFrom);
     if (dateTo) where.voucherDate.lte = new Date(dateTo + 'T23:59:59Z');
   }
-  const skip = (parseInt(page) - 1) * parseInt(limit);
-  const [entries, total] = await Promise.all([
-    prisma.ledgerEntry.findMany({
-      where, skip, take: parseInt(limit),
-      orderBy: { voucherDate: 'desc' },
-      include: { customer: { select: { code: true, name: true } } },
-    }),
-    prisma.ledgerEntry.count({ where }),
-  ]);
+  const pageNum = parseInt(page, 10);
+  const pageSize = parseInt(limit, 10);
+  const entries = await prisma.ledgerEntry.findMany({
+    where,
+    orderBy: [{ voucherDate: 'asc' }, { id: 'asc' }],
+    include: { customer: { select: { code: true, name: true } } },
+  });
 
-  // Calculate running balance
   let balance = 0;
   const withBalance = entries.map((e) => {
     balance += parseFloat(e.debitAmount || 0) - parseFloat(e.creditAmount || 0);
     return { ...e, runningBalance: balance };
   });
 
-  res.json({ data: withBalance, total, page: parseInt(page), totalPages: Math.ceil(total / parseInt(limit)) });
+  const skip = (pageNum - 1) * pageSize;
+  const paged = withBalance.slice(skip, skip + pageSize);
+
+  res.json({
+    data: paged,
+    total: withBalance.length,
+    page: pageNum,
+    totalPages: Math.ceil(withBalance.length / pageSize),
+  });
 }));
 
 // POST /api/ledger (Voucher Entry)

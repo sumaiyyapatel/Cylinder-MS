@@ -38,7 +38,7 @@ export default function TransactionsPage() {
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["transactions"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
-      toast.success(`${res.data.transactions?.length || 1} transaction(s) created`);
+      toast.success(`Bill ${res.data.bill?.billNumber || ""} created`);
       setShowForm(false);
       setForm({ billDate: new Date().toISOString().split("T")[0], customerId: "", gasCode: "", cylinderOwner: "COC", orderNumber: "", transactionCode: "ISSUE", cylinders: [{ cylinderNumber: "", quantityCum: "" }] });
     },
@@ -76,8 +76,8 @@ export default function TransactionsPage() {
     return digits;
   };
 
-  const handleSendWhatsApp = async (txn) => {
-    const customer = txn.customer;
+  const handleSendWhatsApp = async (bill) => {
+    const customer = bill.customer;
     const phone = normalizePhoneForWhatsApp(customer?.phone);
 
     if (!phone) {
@@ -87,8 +87,8 @@ export default function TransactionsPage() {
 
     const message = [
       `Hello ${customer?.name || "Customer"},`,
-      `Bill ${txn.billNumber || "-"} dated ${formatDate(txn.billDate)} is ready.`,
-      `Gas: ${txn.gasCode || "-"}, Cylinder: ${txn.cylinderNumber || "-"}, Quantity: ${txn.quantityCum || "-"}.`,
+      `Bill ${bill.billNumber || "-"} dated ${formatDate(bill.billDate)} is ready.`,
+      `Gas: ${bill.gasCode || "-"}, Cylinders: ${bill.totalCylinders || 0}, Quantity: ${bill.totalQuantity || "-"}.`,
       "Thank you.",
     ].join("\n");
 
@@ -100,7 +100,7 @@ export default function TransactionsPage() {
     }
 
     try {
-      await api.patch(`/transactions/${txn.id}/whatsapp-sent`);
+      await api.patch(`/transactions/${bill.id}/whatsapp-sent`);
       qc.invalidateQueries({ queryKey: ["transactions"] });
       toast.success("WhatsApp marked sent");
     } catch (e) {
@@ -207,14 +207,14 @@ export default function TransactionsPage() {
       {/* Transaction List */}
       <div className="bg-white rounded-md border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left" data-testid="transactions-table">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-xs uppercase tracking-wider font-semibold">
-                <th className="px-3 py-2">Bill No</th><th className="px-3 py-2">Date</th><th className="px-3 py-2">Customer</th>
-                <th className="px-3 py-2">Gas</th><th className="px-3 py-2">Cylinder</th><th className="px-3 py-2">Cu.M</th>
-                <th className="px-3 py-2 text-right">Actions</th>
-              </tr>
-            </thead>
+            <table className="w-full text-sm text-left" data-testid="transactions-table">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-xs uppercase tracking-wider font-semibold">
+                  <th className="px-3 py-2">Bill No</th><th className="px-3 py-2">Date</th><th className="px-3 py-2">Customer</th>
+                  <th className="px-3 py-2">Gas</th><th className="px-3 py-2">Cylinders</th><th className="px-3 py-2">Cu.M</th>
+                  <th className="px-3 py-2 text-right">Actions</th>
+                </tr>
+              </thead>
             <tbody>
               {isLoading ? <tr><td colSpan={7} className="px-3 py-8 text-center text-slate-400">Loading...</td></tr> :
                 (data?.data || []).length === 0 ? <tr><td colSpan={7} className="px-3 py-8 text-center text-slate-400">No transactions yet</td></tr> :
@@ -224,8 +224,8 @@ export default function TransactionsPage() {
                     <td className="px-3 py-2">{formatDate(t.billDate)}</td>
                     <td className="px-3 py-2">{t.customer?.name || "-"}</td>
                     <td className="px-3 py-2">{t.gasCode || "-"}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{t.cylinderNumber || "-"}</td>
-                    <td className="px-3 py-2">{t.quantityCum || "-"}</td>
+                    <td className="px-3 py-2">{t.totalCylinders || t.items?.length || 0}</td>
+                    <td className="px-3 py-2">{t.totalQuantity || "-"}</td>
                     <td className="px-3 py-2 text-right">
                       <div className="flex items-center justify-end gap-1">
                         {t.whatsappSent && (
@@ -250,6 +250,11 @@ export default function TransactionsPage() {
                           <FileText className="w-3.5 h-3.5" />
                         </button>
                       </div>
+                      {!!t.items?.length && (
+                        <div className="mt-1 text-[11px] text-slate-500">
+                          {t.items.map((item) => item.cylinderNumber).join(", ")}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}

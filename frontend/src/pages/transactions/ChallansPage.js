@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, Printer } from "lucide-react";
+import { Plus, Printer, Trash2 } from "lucide-react";
 import { generateChallanPDF } from "@/lib/pdf-export";
 
 export default function ChallansPage() {
@@ -16,16 +16,54 @@ export default function ChallansPage() {
   const [page, setPage] = useState(1);
   const limit = 50;
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [form, setForm] = useState({ challanDate: new Date().toISOString().split("T")[0], customerId: "", cylinderOwner: "COC", cylindersCount: "", quantityCum: "", vehicleNumber: "", transactionType: "DELIVERY" });
+  const [form, setForm] = useState({
+    challanDate: new Date().toISOString().split("T")[0],
+    customerId: "",
+    cylinderOwner: "COC",
+    cylindersCount: "",
+    quantityCum: "",
+    vehicleNumber: "",
+    transactionType: "DELIVERY",
+    linkedBillId: "",
+    cylinders: [{ cylinderNumber: "" }],
+  });
 
   const { data, isLoading } = useQuery({ queryKey: ["challans", page], queryFn: () => api.get("/challans", { params: { page, limit } }).then(r => r.data) });
   const { data: customers } = useQuery({ queryKey: ["customers-list"], queryFn: () => api.get("/customers", { params: { limit: 200 } }).then(r => r.data) });
+  const { data: bills } = useQuery({ queryKey: ["transaction-bills-list"], queryFn: () => api.get("/transactions", { params: { page: 1, limit: 200 } }).then(r => r.data) });
 
   const saveMut = useMutation({
     mutationFn: (d) => api.post("/challans", d),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["challans"] }); setDialogOpen(false); toast.success("Challan created"); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["challans"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      setDialogOpen(false);
+      setForm({
+        challanDate: new Date().toISOString().split("T")[0],
+        customerId: "",
+        cylinderOwner: "COC",
+        cylindersCount: "",
+        quantityCum: "",
+        vehicleNumber: "",
+        transactionType: "DELIVERY",
+        linkedBillId: "",
+        cylinders: [{ cylinderNumber: "" }],
+      });
+      toast.success("Challan created");
+    },
     onError: (e) => toast.error(e.response?.data?.error || "Failed"),
   });
+
+  const addCylinderRow = () => setForm((f) => ({ ...f, cylinders: [...f.cylinders, { cylinderNumber: "" }] }));
+  const updateCylinderRow = (idx, value) => {
+    const cylinders = [...form.cylinders];
+    cylinders[idx] = { cylinderNumber: value };
+    setForm({ ...form, cylinders });
+  };
+  const removeCylinderRow = (idx) => {
+    if (form.cylinders.length <= 1) return;
+    setForm({ ...form, cylinders: form.cylinders.filter((_, i) => i !== idx) });
+  };
 
   return (
     <div className="space-y-4" data-testid="challans-page">
@@ -105,13 +143,65 @@ export default function ChallansPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle style={{ fontFamily: 'var(--font-heading)' }}>New Challan</DialogTitle></DialogHeader>
-          <form onSubmit={(e) => { e.preventDefault(); if (!form.customerId) return toast.error("Select customer"); saveMut.mutate({ ...form, customerId: parseInt(form.customerId) }); }} className="grid grid-cols-2 gap-4">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!form.customerId) return toast.error("Select customer");
+              const validCylinders = form.cylinders.filter((c) => c.cylinderNumber.trim());
+              saveMut.mutate({
+                ...form,
+                customerId: parseInt(form.customerId),
+                linkedBillId: form.linkedBillId ? parseInt(form.linkedBillId) : undefined,
+                cylinders: validCylinders.length ? validCylinders : undefined,
+                cylindersCount: validCylinders.length || form.cylindersCount,
+              });
+            }}
+            className="grid grid-cols-2 gap-4"
+          >
             <div><Label className="text-sm">Date</Label><Input type="date" value={form.challanDate} onChange={(e) => setForm({ ...form, challanDate: e.target.value })} className="h-9 mt-1" /></div>
             <div><Label className="text-sm">Customer *</Label><Select value={form.customerId} onValueChange={(v) => setForm({ ...form, customerId: v })}><SelectTrigger className="h-9 mt-1"><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{(customers?.data || []).map(c => <SelectItem key={c.id} value={String(c.id)}>{c.code} - {c.name}</SelectItem>)}</SelectContent></Select></div>
             <div><Label className="text-sm">Owner</Label><Select value={form.cylinderOwner} onValueChange={(v) => setForm({ ...form, cylinderOwner: v })}><SelectTrigger className="h-9 mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="COC">COC</SelectItem><SelectItem value="POC">POC</SelectItem></SelectContent></Select></div>
             <div><Label className="text-sm">Cylinders Count</Label><Input value={form.cylindersCount} onChange={(e) => setForm({ ...form, cylindersCount: e.target.value })} type="number" className="h-9 mt-1" /></div>
             <div><Label className="text-sm">Vehicle No</Label><Input value={form.vehicleNumber} onChange={(e) => setForm({ ...form, vehicleNumber: e.target.value })} className="h-9 mt-1" /></div>
             <div><Label className="text-sm">Type</Label><Select value={form.transactionType} onValueChange={(v) => setForm({ ...form, transactionType: v })}><SelectTrigger className="h-9 mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="DELIVERY">Delivery</SelectItem><SelectItem value="RETURN">Return</SelectItem></SelectContent></Select></div>
+            <div className="col-span-2">
+              <Label className="text-sm">Linked Bill</Label>
+              <Select value={form.linkedBillId} onValueChange={(v) => setForm({ ...form, linkedBillId: v })}>
+                <SelectTrigger className="h-9 mt-1"><SelectValue placeholder="Optional" /></SelectTrigger>
+                <SelectContent>
+                  {(bills?.data || []).map((bill) => (
+                    <SelectItem key={bill.id} value={String(bill.id)}>
+                      {bill.billNumber} - {bill.customer?.name || "-"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="col-span-2">
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-sm">Cylinder Numbers</Label>
+                <Button type="button" variant="outline" size="sm" onClick={addCylinderRow} className="h-7 text-xs">
+                  <Plus className="w-3 h-3 mr-1" /> Add Row
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {form.cylinders.map((row, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <Input
+                      value={row.cylinderNumber}
+                      onChange={(e) => updateCylinderRow(idx, e.target.value)}
+                      className="h-9"
+                      placeholder="Cylinder number"
+                    />
+                    {form.cylinders.length > 1 && (
+                      <Button type="button" variant="outline" size="icon" className="h-9 w-9" onClick={() => removeCylinderRow(idx)}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
             <div className="col-span-2 flex justify-end gap-2 pt-2">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="h-9">Cancel</Button>
               <Button type="submit" data-testid="challan-save-btn" className="h-9 bg-blue-600 hover:bg-blue-700" disabled={saveMut.isPending}>{saveMut.isPending ? "Saving..." : "Save"}</Button>

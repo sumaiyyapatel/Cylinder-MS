@@ -1,20 +1,49 @@
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { formatINR, formatDate } from "@/lib/utils-format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Package, RotateCcw, IndianRupee, Clock, AlertTriangle, CreditCard } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell } from "recharts";
 
 const COLORS = ["#2563EB", "#16A34A", "#F59E0B", "#EF4444", "#8B5CF6", "#06B6D4"];
 
 export default function DashboardPage() {
   const navigate = useNavigate();
+  const barChartRef = useRef(null);
+  const pieChartRef = useRef(null);
+  const [barChartWidth, setBarChartWidth] = useState(0);
+  const [pieChartWidth, setPieChartWidth] = useState(0);
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard"],
     queryFn: () => api.get("/dashboard").then((r) => r.data),
     refetchInterval: 30000,
   });
+
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined") return undefined;
+
+    const observed = [
+      { ref: barChartRef, setter: setBarChartWidth },
+      { ref: pieChartRef, setter: setPieChartWidth },
+    ];
+
+    const observers = observed.map(({ ref, setter }) => {
+      if (!ref.current) return null;
+      const observer = new ResizeObserver(([entry]) => {
+        const width = Math.floor(entry?.contentRect?.width || 0);
+        setter(width > 0 ? width : 0);
+      });
+      observer.observe(ref.current);
+      setter(ref.current.clientWidth || 0);
+      return observer;
+    });
+
+    return () => {
+      observers.forEach((observer) => observer?.disconnect());
+    };
+  }, []);
 
   if (isLoading) {
     return (
@@ -98,25 +127,31 @@ export default function DashboardPage() {
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Bar Chart */}
-        <Card className="lg:col-span-2 border border-slate-200 shadow-sm" data-testid="daily-chart">
+        <Card className="lg:col-span-2 min-w-0 border border-slate-200 shadow-sm" data-testid="daily-chart">
           <CardHeader className="pb-2">
             <CardTitle className="text-base font-semibold" style={{ fontFamily: 'var(--font-heading)' }}>
               Daily Issues vs Returns (Last 30 Days)
             </CardTitle>
           </CardHeader>
-          <CardContent className="h-72">
+          <CardContent className="h-72 min-w-0">
             {chartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="issues" fill="#2563EB" name="Issues" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="returns" fill="#16A34A" name="Returns" radius={[2, 2, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <div ref={barChartRef} className="h-full min-w-0">
+                {barChartWidth > 0 ? (
+                  <BarChart width={barChartWidth} height={288} data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <Tooltip />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="issues" fill="#2563EB" name="Issues" radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="returns" fill="#16A34A" name="Returns" radius={[2, 2, 0, 0]} />
+                  </BarChart>
+                ) : (
+                  <div className="flex h-full items-center justify-center text-slate-400 text-sm">
+                    Loading chart...
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="flex items-center justify-center h-full text-slate-400 text-sm">
                 No transaction data yet
@@ -126,24 +161,30 @@ export default function DashboardPage() {
         </Card>
 
         {/* Pie Chart */}
-        <Card className="border border-slate-200 shadow-sm" data-testid="gas-pie-chart">
+        <Card className="min-w-0 border border-slate-200 shadow-sm" data-testid="gas-pie-chart">
           <CardHeader className="pb-2">
             <CardTitle className="text-base font-semibold" style={{ fontFamily: 'var(--font-heading)' }}>
               Cylinders by Gas Type
             </CardTitle>
           </CardHeader>
-          <CardContent className="h-72">
+          <CardContent className="h-72 min-w-0">
             {pieData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={pieData} cx="50%" cy="50%" outerRadius={90} dataKey="value" label={({ name, value }) => `${name}: ${value}`}>
-                    {pieData.map((_, idx) => (
-                      <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
+              <div ref={pieChartRef} className="h-full min-w-0">
+                {pieChartWidth > 0 ? (
+                  <PieChart width={pieChartWidth} height={288}>
+                    <Pie data={pieData} cx="50%" cy="50%" outerRadius={90} dataKey="value" label={({ name, value }) => `${name}: ${value}`}>
+                      {pieData.map((_, idx) => (
+                        <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                ) : (
+                  <div className="flex h-full items-center justify-center text-slate-400 text-sm">
+                    Loading chart...
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="flex items-center justify-center h-full text-slate-400 text-sm">
                 No cylinder data

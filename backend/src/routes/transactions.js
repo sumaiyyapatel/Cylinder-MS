@@ -13,8 +13,8 @@ const {
 const {
   generateBillNumber,
   generateSalesVoucherNumber,
-  generateLedgerVoucherNumber,
 } = require('../services/numberingService');
+const { postLedgerEntries } = require('../services/ledgerPostingService');
 const { updateCylinderStatus, assertNoActiveHolding } = require('../services/cylinderStatusService');
 const { createAuditLog } = require('../services/auditService');
 const {
@@ -28,7 +28,34 @@ const {
 
 const router = express.Router();
 
-// GET /api/transactions
+async function buildBillResponse(tx, bill) {
+  const salesBookEntry = await tx.salesBook.findFirst({
+    where: { billNumber: bill.billNumber },
+    select: { subtotal: true, gstAmount: true, totalAmount: true, gstCode: true, rate: true },
+  });
+
+  const companyGstinSetting = await tx.companySetting.findUnique({
+    where: { key: 'company_gstin' },
+    select: { value: true },
+  });
+
+  const gstBreakup = salesBookEntry
+    ? calculateGstBreakup(
+        parseFloat(salesBookEntry.subtotal || 0),
+        salesBookEntry.gstCode ? parseInt(salesBookEntry.gstCode.replace(/^[IS]/, ''), 10) : 0,
+        bill.gstMode || getGstMode(companyGstinSetting?.value, bill.customer?.gstin)
+      )
+    : null;
+
+  return {
+    ...bill,
+    salesBook: salesBookEntry,
+    gstBreakup,
+    companyGstin: companyGstinSetting?.value,
+    hsnCode: bill.items?.[0]?.cylinder?.gasType?.hsnCode || null,
+  };
+}
+
 router.get('/', authenticate, asyncHandler(async (req, res) => {
   const { customerId, gasCode, dateFrom, dateTo, page = 1, limit = 50 } = req.query;
   const where = {};
@@ -41,65 +68,41 @@ router.get('/', authenticate, asyncHandler(async (req, res) => {
   }
 
   const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
-  const [transactions, total] = await Promise.all([
-    prisma.transaction.findMany({
+  const [bills, total] = await Promise.all([
+    prisma.bill.findMany({
       where,
       skip,
       take: parseInt(limit, 10),
-      orderBy: { billDate: 'desc' },
-      include: { 
-        customer: { select: { id: true, code: true, name: true, phone: true, gstin: true } },
-        cylinder: { select: { gasCode: true }, include: { gasType: { select: { hsnCode: true, gstRate: true } } } },
+      orderBy: [{ billDate: 'desc' }, { id: 'desc' }],
+      include: {
+        customer: { select: { id: true, code: true, name: true, phone: true, gstin: true, address1: true, city: true } },
+        items: {
+          orderBy: [{ id: 'asc' }],
+          include: {
+            bill: { select: { id: true } },
+            cylinder: {
+              select: {
+                gasCode: true,
+                gasType: { select: { hsnCode: true, gstRate: true } },
+              },
+            },
+          },
+        },
       },
     }),
-    prisma.transaction.count({ where }),
+    prisma.bill.count({ where }),
   ]);
 
-  // Enrich transactions with GST data from sales book
-  const enrichedTransactions = await Promise.all(
-    transactions.map(async (txn) => {
-      const salesBookEntry = await prisma.salesBook.findFirst({
-        where: { billNumber: txn.billNumber },
-        select: { subtotal: true, gstAmount: true, totalAmount: true, gstCode: true, rate: true },
-      });
-
-      // Get company GSTIN
-      const companyGstinSetting = await prisma.companySetting.findUnique({
-        where: { key: 'company_gstin' },
-        select: { value: true },
-      });
-
-      let gstBreakup = null;
-      if (salesBookEntry && salesBookEntry.subtotal && salesBookEntry.gstAmount) {
-        const gstMode = getGstMode(companyGstinSetting?.value, txn.customer.gstin);
-        const gstRate = salesBookEntry.gstCode ? parseInt(salesBookEntry.gstCode.replace(/^[IS]/, '')) : 0;
-        
-        gstBreakup = calculateGstBreakup(
-          parseFloat(salesBookEntry.subtotal),
-          gstRate,
-          gstMode
-        );
-      }
-
-      return {
-        ...txn,
-        salesBook: salesBookEntry,
-        gstBreakup,
-        companyGstin: companyGstinSetting?.value,
-        hsnCode: txn.cylinder?.gasType?.hsnCode,
-      };
-    })
-  );
+  const enrichedBills = await Promise.all(bills.map((bill) => buildBillResponse(prisma, bill)));
 
   res.json({
-    data: enrichedTransactions,
+    data: enrichedBills,
     total,
     page: parseInt(page, 10),
     totalPages: Math.ceil(total / parseInt(limit, 10)),
   });
 }));
 
-// POST /api/transactions (Bill Cum Challan)
 router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
   const { customerId, gasCode, cylinderOwner, cylinders, billDate, orderNumber, transactionCode } = req.body;
   const customerIdNum = parseRequiredInt(customerId, 'customerId');
@@ -112,15 +115,12 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
   const preparedCylinders = cylinders.map((cyl, index) => {
     const number = validateCylinderNumber(cyl?.cylinderNumber, `cylinders[${index}].cylinderNumber`);
     const quantityCum = parseOptionalNonNegativeNumber(cyl?.quantityCum, `cylinders[${index}].quantityCum`);
-    return {
-      cylinderNumber: number,
-      quantityCum,
-    };
+    return { cylinderNumber: number, quantityCum };
   });
 
   validateCylinderNumbersUnique(preparedCylinders.map((c) => c.cylinderNumber));
 
-  const { created, warnings } = await prisma.$transaction(async (tx) => {
+  const { createdBill, warnings } = await prisma.$transaction(async (tx) => {
     const [customer, companyGstinSetting] = await Promise.all([
       tx.customer.findUnique({
         where: { id: customerIdNum },
@@ -171,13 +171,8 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
       const cylinder = cylinderByNumber.get(number);
       if (!cylinder) continue;
 
-      if (holdingCylinderIds.has(cylinder.id)) {
-        blockedWithCustomer.push(number);
-      }
-
-      if (cylinder.status !== 'IN_STOCK') {
-        blockedNotInStock.push(number);
-      }
+      if (holdingCylinderIds.has(cylinder.id)) blockedWithCustomer.push(number);
+      if (cylinder.status !== 'IN_STOCK') blockedNotInStock.push(number);
 
       const derivedDue = deriveNextHydroDueDate(cylinder);
       if (!derivedDue) {
@@ -203,6 +198,7 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
     if (blockedNotInStock.length) {
       throw new AppError(400, `Cylinder(s) must be IN_STOCK before issue: ${[...new Set(blockedNotInStock)].join(', ')}`);
     }
+
     const warnings = [];
     if (blockedMissingHydro.length) {
       warnings.push(`Hydro test data missing for cylinder(s): ${[...new Set(blockedMissingHydro)].join(', ')}`);
@@ -211,80 +207,64 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
       warnings.push(`Hydro test overdue for cylinder(s): ${[...new Set(blockedHydroOverdue)].join(', ')}`);
     }
 
-    const created = [];
+    const billNumber = await generateBillNumber(tx, cylinderOwner || 'COC', effectiveBillDate);
+    const rateConfig = await tx.rateList.findFirst({
+      where: {
+        gasCode: gasCode || dbCylinders[0]?.gasCode || undefined,
+        ownerCode: cylinderOwner || 'COC',
+      },
+      orderBy: { effectiveFrom: 'desc' },
+    });
+
+    const gstRate = rateConfig?.gstRate == null ? 0 : validateGstRate(rateConfig.gstRate, 'gstRate');
+    const unitRate = Number(rateConfig?.ratePerUnit ?? 0);
+    if (!Number.isFinite(unitRate) || unitRate < 0) {
+      throw new AppError(400, 'Rate list has invalid unit rate');
+    }
+
+    const totalQuantity = round2(preparedCylinders.reduce((sum, item) => sum + (item.quantityCum || 0), 0));
+    const taxableAmount = round2(totalQuantity * unitRate);
+    const gstMode = getGstMode(companyGstinSetting?.value, customer.gstin);
+    const tax = calculateGstBreakup(taxableAmount, gstRate, gstMode);
+
+    const bill = await tx.bill.create({
+      data: {
+        billNumber,
+        billDate: effectiveBillDate,
+        customerId: customerIdNum,
+        gasCode: gasCode || dbCylinders[0]?.gasCode || null,
+        cylinderOwner: cylinderOwner || 'COC',
+        orderNumber: orderNumber || null,
+        transactionCode: transactionCode || 'ISSUE',
+        totalCylinders: preparedCylinders.length,
+        totalQuantity: totalQuantity || null,
+        unitRate: unitRate || null,
+        gstRate: round2(gstRate),
+        gstMode,
+        taxableAmount: round2(tax.taxableAmount),
+        gstAmount: round2(tax.gstAmount),
+        totalAmount: round2(tax.totalAmount),
+        operatorId: req.user.sub,
+      },
+    });
 
     for (const item of preparedCylinders) {
       const cylinder = cylinderByNumber.get(item.cylinderNumber);
       await assertNoActiveHolding(tx, cylinder.id, cylinder.cylinderNumber);
 
-      const billNumber = await generateBillNumber(tx, cylinderOwner || 'COC', effectiveBillDate);
-      const quantityCum = round2(item.quantityCum || 0);
-      const rateConfig = await tx.rateList.findFirst({
-        where: {
-          gasCode: gasCode || cylinder.gasCode || undefined,
-          ownerCode: cylinderOwner || 'COC',
-        },
-        orderBy: { effectiveFrom: 'desc' },
-      });
-
-      const gstRate = rateConfig?.gstRate == null ? 0 : validateGstRate(rateConfig.gstRate, 'gstRate');
-      const unitRate = Number(rateConfig?.ratePerUnit ?? 0);
-      if (!Number.isFinite(unitRate) || unitRate < 0) {
-        throw new AppError(400, 'Rate list has invalid unit rate');
-      }
-
-      const taxableAmount = round2(quantityCum * unitRate);
-      const gstMode = getGstMode(companyGstinSetting?.value, customer.gstin);
-      const tax = calculateGstBreakup(taxableAmount, gstRate, gstMode);
-
       const txn = await tx.transaction.create({
         data: {
+          billId: bill.id,
           billNumber,
           billDate: effectiveBillDate,
           customerId: customerIdNum,
-          gasCode,
+          gasCode: gasCode || cylinder.gasCode || null,
           cylinderOwner: cylinderOwner || 'COC',
           cylinderNumber: item.cylinderNumber,
-          quantityCum: quantityCum || null,
-          orderNumber,
+          quantityCum: round2(item.quantityCum || 0) || null,
+          orderNumber: orderNumber || null,
           transactionCode: transactionCode || 'ISSUE',
           fullOrEmpty: 'F',
-          operatorId: req.user.sub,
-        },
-      });
-
-      const salesVoucher = await generateSalesVoucherNumber(tx, effectiveBillDate);
-      await tx.salesBook.create({
-        data: {
-          voucherNumber: salesVoucher,
-          voucherDate: effectiveBillDate,
-          partyCode: customer.code,
-          documentNumber: billNumber,
-          quantityIssued: quantityCum || null,
-          unit: 'CM',
-          rate: unitRate || null,
-          gstCode: gstRate ? `${gstMode === 'INTER' ? 'I' : 'S'}${Math.round(gstRate)}` : null,
-          subtotal: round2(tax.taxableAmount),
-          gstAmount: round2(tax.gstAmount),
-          totalAmount: round2(tax.totalAmount),
-          transactionCode: transactionCode || 'S',
-          operatorId: req.user.sub,
-          billNumber,
-        },
-      });
-
-      const ledgerVoucher = await generateLedgerVoucherNumber(tx, 'JOURNAL', effectiveBillDate);
-      await tx.ledgerEntry.create({
-        data: {
-          voucherNumber: ledgerVoucher,
-          voucherDate: effectiveBillDate,
-          partyCode: customer.code,
-          particular: `Sales Bill ${billNumber}`,
-          narration: `Taxable ${tax.taxableAmount}, GST ${tax.gstAmount} (${gstMode})`,
-          debitAmount: round2(tax.totalAmount),
-          creditAmount: null,
-          transactionType: 'JOURNAL',
-          voucherRef: billNumber,
           operatorId: req.user.sub,
         },
       });
@@ -313,43 +293,117 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
           cylinderNumber: item.cylinderNumber,
         },
       });
+    }
 
-      created.push({
-        ...txn,
-        gstMode,
-        gstRate: round2(gstRate),
-        taxableAmount: round2(tax.taxableAmount),
+    const salesVoucher = await generateSalesVoucherNumber(tx, effectiveBillDate);
+    await tx.salesBook.create({
+      data: {
+        voucherNumber: salesVoucher,
+        voucherDate: effectiveBillDate,
+        partyCode: customer.code,
+        documentNumber: billNumber,
+        quantityIssued: totalQuantity || null,
+        unit: 'CM',
+        rate: unitRate || null,
+        gstCode: gstRate ? `${gstMode === 'INTER' ? 'I' : 'S'}${Math.round(gstRate)}` : null,
+        subtotal: round2(tax.taxableAmount),
         gstAmount: round2(tax.gstAmount),
         totalAmount: round2(tax.totalAmount),
+        transactionCode: transactionCode || 'S',
+        operatorId: req.user.sub,
+        billNumber,
+      },
+    });
+
+    const ledgerEntries = [
+      {
+        partyCode: customer.code,
+        particular: `Sales Bill ${billNumber}`,
+        narration: `Sales bill ${billNumber}`,
+        debitAmount: round2(tax.totalAmount),
+        creditAmount: null,
+        voucherRef: billNumber,
+      },
+      {
+        partyCode: null,
+        particular: `Sales ${billNumber}`,
+        narration: `Taxable amount for ${billNumber}`,
+        debitAmount: null,
+        creditAmount: round2(tax.taxableAmount),
+        voucherRef: billNumber,
+      },
+    ];
+
+    if (tax.gstAmount > 0) {
+      ledgerEntries.push({
+        partyCode: null,
+        particular: `GST Output ${billNumber}`,
+        narration: `GST output for ${billNumber}`,
+        debitAmount: null,
+        creditAmount: round2(tax.gstAmount),
+        voucherRef: billNumber,
       });
     }
 
-    return { created, warnings };
+    await postLedgerEntries(tx, effectiveBillDate, ledgerEntries, req.user.sub, { transactionType: 'JOURNAL' });
+
+    await createAuditLog(tx, {
+      action: 'CREATE_BILL',
+      module: 'transactions',
+      userId: req.user.sub,
+      entityId: String(bill.id),
+      oldValue: null,
+      newValue: {
+        billNumber,
+        customerId: customerIdNum,
+        totalCylinders: preparedCylinders.length,
+        totalAmount: round2(tax.totalAmount),
+      },
+    });
+
+    const createdBill = await tx.bill.findUnique({
+      where: { id: bill.id },
+      include: {
+        customer: { select: { id: true, code: true, name: true, phone: true, gstin: true, address1: true, city: true } },
+        items: {
+          orderBy: [{ id: 'asc' }],
+          include: {
+            cylinder: {
+              select: {
+                gasCode: true,
+                gasType: { select: { hsnCode: true, gstRate: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return { createdBill, warnings };
   });
 
-  res.status(201).json({ message: `${created.length} transaction(s) created`, warnings, transactions: created });
+  const responseBill = await buildBillResponse(prisma, createdBill);
+  res.status(201).json({
+    message: 'Bill created',
+    warnings,
+    bill: responseBill,
+  });
 }));
 
-// PATCH /api/transactions/:id/whatsapp-sent
 router.patch('/:id/whatsapp-sent', authenticate, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) {
-    throw new AppError(400, 'Invalid transaction id');
+    throw new AppError(400, 'Invalid bill id');
   }
 
-  const transaction = await prisma.transaction.update({
+  const bill = await prisma.bill.update({
     where: { id },
     data: { whatsappSent: true },
   });
 
-  if (!transaction) {
-    throw new AppError(404, 'Transaction not found');
-  }
-
-  res.json({ message: 'WhatsApp marked sent', transaction });
+  res.json({ message: 'WhatsApp marked sent', bill });
 }));
 
-// GET /api/transactions/next-bill-number
 router.get('/next-bill-number', authenticate, asyncHandler(async (req, res) => {
   const { ownerCode = 'COC' } = req.query;
   const billNumber = await generateBillNumber(prisma, ownerCode);

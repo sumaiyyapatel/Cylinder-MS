@@ -7,6 +7,7 @@ const { calculateHoldDays, isPocOwner, normalizeOwnerCode, round2 } = require('.
 const { generateEcrNumber } = require('../services/numberingService');
 const { updateCylinderStatus } = require('../services/cylinderStatusService');
 const { createAuditLog } = require('../services/auditService');
+const { postLedgerEntries } = require('../services/ledgerPostingService');
 const {
   parseRequiredInt,
   parseOptionalNonNegativeNumber,
@@ -16,44 +17,7 @@ const {
 
 const router = express.Router();
 
-// Helper: calculate rental using 3-tier system
-function calculateRental(holdDays, rateConfig) {
-  if (!rateConfig) return 0;
-
-  const safeHoldDays = Math.max(0, Number(holdDays) || 0);
-  const freeDays = Math.max(0, Number(rateConfig.rentalFreeDays) || 0);
-  if (safeHoldDays <= freeDays) return 0;
-
-  const tierWindow = (fromVal, toVal, defaultFrom, defaultTo) => {
-    const from = Math.max(1, Number(fromVal) || defaultFrom);
-    const to = Math.max(from, Number(toVal) || defaultTo);
-    return to - from + 1;
-  };
-
-  let rent = 0;
-  let remainingDays = safeHoldDays - freeDays;
-
-  // Tier 1
-  if (rateConfig.rentalRate1 && remainingDays > 0) {
-    const tier1Days = Math.min(remainingDays, tierWindow(rateConfig.rentalDaysFrom1, rateConfig.rentalDaysTo1, 1, 15));
-    rent += tier1Days * parseFloat(rateConfig.rentalRate1);
-    remainingDays -= tier1Days;
-  }
-
-  // Tier 2
-  if (rateConfig.rentalRate2 && remainingDays > 0) {
-    const tier2Days = Math.min(remainingDays, tierWindow(rateConfig.rentalDaysFrom2, rateConfig.rentalDaysTo2, 16, 30));
-    rent += tier2Days * parseFloat(rateConfig.rentalRate2);
-    remainingDays -= tier2Days;
-  }
-
-  // Tier 3 (remaining days)
-  if (rateConfig.rentalRate3 && remainingDays > 0) {
-    rent += remainingDays * parseFloat(rateConfig.rentalRate3);
-  }
-
-  return Math.round(rent * 100) / 100;
-}
+const { calculateRent, getEffectiveRate } = require('../services/rentalService');
 
 // GET /api/ecr
 router.get('/', authenticate, asyncHandler(async (req, res) => {
@@ -129,13 +93,8 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
 
     let rentAmount = 0;
     if (!isPocOwner(effectiveOwner)) {
-      const rateConfig = await tx.rateList.findFirst({
-        where: {
-          gasCode: gasCode || cylinder.gasCode,
-          ownerCode: { in: [effectiveOwner, cylinderOwner || cylinder.ownerCode] },
-        },
-      });
-      rentAmount = calculateRental(holdDays, rateConfig);
+      const rateConfig = await getEffectiveRate(tx, { customerId: customerIdNum, gasCode: gasCode || cylinder.gasCode, ownerCode: effectiveOwner });
+      rentAmount = calculateRent(holdDays, rateConfig);
     }
     rentAmount = round2(rentAmount);
 
@@ -166,6 +125,16 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
         quantityCum: parsedQuantity == null ? null : round2(parsedQuantity),
       },
     });
+
+    // If rental applies, post ledger entries (customer DR, rental income CR)
+    if (rentAmount && rentAmount > 0) {
+      const customerRec = await tx.customer.findUnique({ where: { id: customerIdNum }, select: { code: true } });
+      const ledgerEntries = [
+        { partyCode: customerRec?.code || null, particular: `Rental for ${ecrNumber}`, narration: `Rental for ${ecrNumber}`, debitAmount: rentAmount, creditAmount: null, voucherRef: ecrNumber },
+        { partyCode: null, particular: `Rental Income ${ecrNumber}`, narration: `Rental Income ${ecrNumber}`, debitAmount: null, creditAmount: rentAmount, voucherRef: ecrNumber },
+      ];
+      await postLedgerEntries(tx, returnDate, ledgerEntries, req.user.sub);
+    }
 
     await createAuditLog(tx, {
       action: 'RETURN_CYLINDER',

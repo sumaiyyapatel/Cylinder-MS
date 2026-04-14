@@ -86,6 +86,7 @@ model Customer {
   createdAt     DateTime  @default(now()) @map("created_at")
 
   area          Area?     @relation(fields: [areaCode], references: [areaCode])
+  bills         Bill[]
   transactions  Transaction[]
   orders        Order[]
   ecrRecords    EcrRecord[]
@@ -115,6 +116,7 @@ model Cylinder {
 
   gasType         GasType?        @relation(fields: [gasCode], references: [gasCode])
   holdings        CylinderHolding[]
+  transactions    Transaction[]
   alerts          Alert[]         @relation("CylinderAlerts")
 
   @@map("cylinders")
@@ -199,7 +201,8 @@ model RateList {
 
 model Transaction {
   id              Int       @id @default(autoincrement())
-  billNumber      String    @unique @map("bill_number")
+  billId          Int?      @map("bill_id")
+  billNumber      String    @map("bill_number")
   billDate        DateTime  @map("bill_date")
   customerId      Int       @map("customer_id")
   gasCode         String?   @map("gas_code")
@@ -216,13 +219,46 @@ model Transaction {
   pdfPath         String?   @map("pdf_path")
   createdAt       DateTime  @default(now()) @map("created_at")
 
+  bill            Bill?     @relation(fields: [billId], references: [id])
   customer        Customer  @relation(fields: [customerId], references: [id])
+  cylinder        Cylinder? @relation(fields: [cylinderNumber], references: [cylinderNumber])
   holdings        CylinderHolding[]
+
+  @@index([billId])
+  @@index([customerId, billDate])
+  @@index([billNumber])
+
+  @@map("transactions")
+}
+
+model Bill {
+  id              Int       @id @default(autoincrement())
+  billNumber      String    @unique @map("bill_number")
+  billDate        DateTime  @map("bill_date")
+  customerId      Int       @map("customer_id")
+  gasCode         String?   @map("gas_code")
+  cylinderOwner   String?   @map("cylinder_owner")
+  orderNumber     String?   @map("order_number")
+  transactionCode String?   @map("transaction_code")
+  totalCylinders  Int       @default(0) @map("total_cylinders")
+  totalQuantity   Decimal?  @map("total_quantity")
+  unitRate        Decimal?  @map("unit_rate")
+  gstRate         Decimal?  @map("gst_rate")
+  gstMode         String?   @map("gst_mode")
+  taxableAmount   Decimal?  @map("taxable_amount")
+  gstAmount       Decimal?  @map("gst_amount")
+  totalAmount     Decimal?  @map("total_amount")
+  whatsappSent    Boolean   @default(false) @map("whatsapp_sent")
+  pdfPath         String?   @map("pdf_path")
+  operatorId      Int?      @map("operator_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  items           Transaction[]
   challans        Challan[]
 
   @@index([customerId, billDate])
-
-  @@map("transactions")
+  @@map("bills")
 }
 
 model EcrRecord {
@@ -286,7 +322,7 @@ model Challan {
   createdAt       DateTime  @default(now()) @map("created_at")
 
   customer        Customer  @relation(fields: [customerId], references: [id])
-  linkedBill      Transaction? @relation(fields: [linkedBillId], references: [id])
+  linkedBill      Bill?     @relation(fields: [linkedBillId], references: [id])
 
   @@index([linkedBillId])
   @@index([customerId, challanDate])
@@ -311,7 +347,7 @@ model AuditLog {
 
 model LedgerEntry {
   id              Int       @id @default(autoincrement())
-  voucherNumber   String    @unique @map("voucher_number")
+  voucherNumber   String    @map("voucher_number")
   voucherDate     DateTime  @map("voucher_date")
   partyCode       String?   @map("party_code")
   particular      String?
@@ -326,6 +362,7 @@ model LedgerEntry {
 
   customer        Customer? @relation(fields: [partyCode], references: [code])
 
+  @@index([voucherNumber])
   @@map("ledger_entries")
 }
 

@@ -1,6 +1,13 @@
 require('dotenv').config({ override: true });
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
+const {
+  generateBillNumber,
+  generateSalesVoucherNumber,
+  generateLedgerVoucherNumber,
+  generateChallanNumber,
+  generateEcrNumber,
+} = require('../src/services/numberingService');
 
 const prisma = new PrismaClient();
 
@@ -116,6 +123,124 @@ async function main() {
     if (!existing) await prisma.rateList.create({ data: r });
   }
   console.log('Rate list seeded');
+
+  // --- Additional mock data for transactions, holdings, challans, ecr, ledger, salesbook, orders, alerts ---
+  const adminUser = await prisma.user.findUnique({ where: { username: 'admin' } });
+
+  // Sample Transaction + SalesBook + LedgerEntry + Holding for COC-OX-001 -> C0001
+  const cust1 = await prisma.customer.findUnique({ where: { code: 'C0001' } });
+  const cyl1 = await prisma.cylinder.findUnique({ where: { cylinderNumber: 'COC-OX-001' } });
+  if (cust1 && cyl1) {
+    const billDate = new Date();
+    const billNumber1 = await generateBillNumber(prisma, 'COC', billDate);
+    const txn1 = await prisma.transaction.create({
+      data: {
+        billNumber: billNumber1,
+        billDate,
+        customerId: cust1.id,
+        gasCode: cyl1.gasCode,
+        cylinderOwner: cyl1.ownerCode,
+        cylinderNumber: cyl1.cylinderNumber,
+        quantityCum: cyl1.capacity || 0,
+        transactionCode: 'ISSUE',
+        fullOrEmpty: 'F',
+        operatorId: adminUser?.id || null,
+      },
+    });
+
+    const rate = await prisma.rateList.findFirst({ where: { gasCode: cyl1.gasCode, ownerCode: cyl1.ownerCode } });
+    const unitRate = Number(rate?.ratePerUnit || 0);
+    const subtotal = Math.round((Number(cyl1.capacity || 0) * unitRate) * 100) / 100;
+    const gstRate = Number(rate?.gstRate || 0);
+    const gstAmount = Math.round((subtotal * (gstRate / 100)) * 100) / 100;
+    const totalAmount = Math.round((subtotal + gstAmount) * 100) / 100;
+
+    const salesVoucher = await generateSalesVoucherNumber(prisma, billDate);
+    await prisma.salesBook.create({
+      data: {
+        voucherNumber: salesVoucher,
+        voucherDate: billDate,
+        partyCode: cust1.code,
+        documentNumber: billNumber1,
+        quantityIssued: cyl1.capacity || null,
+        unit: 'CM',
+        rate: unitRate || null,
+        gstCode: gstRate ? `S${Math.round(gstRate)}` : null,
+        subtotal,
+        gstAmount,
+        totalAmount,
+        transactionCode: 'S',
+        operatorId: adminUser?.id || null,
+        billNumber: billNumber1,
+      },
+    });
+
+    const ledgerVoucher = await generateLedgerVoucherNumber(prisma, 'JOURNAL', billDate);
+    await prisma.ledgerEntry.create({
+      data: {
+        voucherNumber: ledgerVoucher,
+        voucherDate: billDate,
+        partyCode: cust1.code,
+        particular: `Sales Bill ${billNumber1}`,
+        narration: `Taxable ${subtotal}, GST ${gstAmount}`,
+        debitAmount: totalAmount,
+        creditAmount: null,
+        transactionType: 'JOURNAL',
+        voucherRef: billNumber1,
+        operatorId: adminUser?.id || null,
+      },
+    });
+
+    await prisma.cylinder.update({ where: { id: cyl1.id }, data: { status: 'WITH_CUSTOMER' } });
+    const holding1 = await prisma.cylinderHolding.create({ data: { cylinderId: cyl1.id, customerId: cust1.id, transactionId: txn1.id, issuedAt: billDate, status: 'HOLDING' } });
+
+    await prisma.auditLog.create({ data: { action: 'SEED_TXN', module: 'seed', userId: adminUser?.id || null, entityId: String(txn1.id), oldValue: null, newValue: { billNumber: billNumber1 } } });
+  }
+
+  // Create a challan linked to the transaction
+  const challanDate = new Date();
+  const someCust = await prisma.customer.findFirst();
+  if (someCust) {
+    const challanNumber = await generateChallanNumber(prisma, challanDate);
+    await prisma.challan.create({ data: { challanNumber, challanDate, customerId: someCust.id, cylinderOwner: 'COC', cylindersCount: 1, quantityCum: 47, vehicleNumber: 'MH49-0001', transactionType: 'DELIVERY', operatorId: adminUser?.id || null } });
+  }
+
+  // Create an ECR (return) for a returned cylinder if a holding exists
+  const someHolding = await prisma.cylinderHolding.findFirst({ where: { status: 'HOLDING' }, include: { cylinder: true } });
+  if (someHolding) {
+    const ecrDate = new Date();
+    const ecrNumber = await generateEcrNumber(prisma, ecrDate);
+    await prisma.ecrRecord.create({ data: {
+      ecrNumber,
+      ecrDate,
+      customerId: someHolding.customerId,
+      gasCode: someHolding.cylinder.gasCode,
+      cylinderOwner: someHolding.cylinder.ownerCode,
+      cylinderNumber: someHolding.cylinder.cylinderNumber,
+      issueNumber: someHolding.transactionId ? (await prisma.transaction.findUnique({ where: { id: someHolding.transactionId }, select: { billNumber: true } })).billNumber : null,
+      issueDate: someHolding.issuedAt,
+      holdDays: 2,
+      rentAmount: 0,
+      challanNumber: null,
+      challanDate: null,
+      vehicleNumber: null,
+      operatorId: adminUser?.id || null,
+      quantityCum: someHolding.cylinder.capacity || null,
+    } });
+  }
+
+  // Sample Order
+  const anyCustomer = await prisma.customer.findFirst();
+  if (anyCustomer) {
+    await prisma.order.create({ data: { orderNumber: 'ORD-1001', orderDate: new Date(), customerId: anyCustomer.id, gasCode: 'OX', ownerCode: 'COC', quantityCum: 47, quantityCyl: 1, rate: 180, freightRate: 0, salesTaxRate: 12, status: 'ACTIVE', createdAt: new Date() } });
+  }
+
+  // Sample Alerts
+  const cylForAlert = await prisma.cylinder.findFirst({ where: { status: 'IN_STOCK' } });
+  if (cylForAlert) {
+    await prisma.alert.create({ data: { type: 'LOW_STOCK', cylinderId: cylForAlert.id, message: `Low stock sample for ${cylForAlert.cylinderNumber}`, sentVia: 'SYSTEM' } });
+  }
+
 
   console.log('Seeding complete!');
 }
