@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { authenticate } = require('../lib/auth');
+const { runReconciliation } = require('../services/reconciliationService');
 
 const router = express.Router();
 
@@ -777,6 +778,17 @@ router.get('/age-analysis-outstanding', authenticate, async (req, res) => {
         '90+': buckets['90+'].reduce((sum, item) => sum + item.balance, 0),
       },
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Reconciliation - Holding Parity Check (replaces CHECKER.PRG)
+router.get('/reconciliation', authenticate, async (req, res) => {
+  try {
+    const { customerId, gasCode, ownerCode } = req.query;
+    const result = await runReconciliation(prisma, { customerId, gasCode, ownerCode });
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

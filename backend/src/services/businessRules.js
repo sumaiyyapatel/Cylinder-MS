@@ -1,9 +1,15 @@
+/**
+ * Get financial year code in YY-YY format.
+ * April onwards → current year. Jan-Mar → previous year.
+ * Example: April 2025 → "25-26", March 2026 → "25-26"
+ */
 function getFinancialYearCode(date = new Date()) {
   const dt = new Date(date);
   const year = dt.getFullYear();
   const month = dt.getMonth(); // 0-11
   const fyStartYear = month >= 3 ? year : year - 1; // FY starts in April
-  return fyStartYear.toString().slice(-2);
+  const fyEndYear = fyStartYear + 1;
+  return `${String(fyStartYear).slice(-2)}-${String(fyEndYear).slice(-2)}`;
 }
 
 function atStartOfDay(date) {

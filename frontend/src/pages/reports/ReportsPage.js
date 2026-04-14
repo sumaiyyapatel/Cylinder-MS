@@ -141,6 +141,14 @@ export default function ReportsPage() {
     enabled: activeReport === "journal-book",
   });
 
+  const { data: reconciliationData, isLoading: reconciliationLoading } = useQuery({
+    queryKey: ["report-reconciliation", customerIdParam, gasCodeParam],
+    queryFn: () => api.get("/reports/reconciliation", {
+      params: { customerId: customerIdParam, gasCode: gasCodeParam },
+    }).then(r => r.data),
+    enabled: activeReport === "reconciliation",
+  });
+
   const countValue = (value) => {
     if (typeof value === "number") return value;
     if (value && typeof value === "object" && typeof value._all === "number") return value._all;
@@ -259,6 +267,20 @@ export default function ReportsPage() {
         generateTablePDF("Journal Book", ["Voucher No", "Date", "Party", "Type", "Particular", "Debit", "Credit"], rowsOrEmpty(rows, 7), "l");
         break;
       }
+      case "reconciliation": {
+        const rows = (reconciliationData?.mismatches || []).map((r) => [
+          `${r.customerCode} - ${r.customerName}`,
+          r.gasCode || "-",
+          r.ownerCode || "-",
+          r.issued,
+          r.returned,
+          r.balance,
+          r.activeHoldings,
+          r.delta,
+        ]);
+        generateTablePDF("Reconciliation — Mismatches", ["Customer", "Gas", "Owner", "Issued", "Returned", "Balance", "Holdings", "Delta"], rowsOrEmpty(rows, 8), "l");
+        break;
+      }
       default:
         console.warn("No PDF generator for this report");
     }
@@ -290,12 +312,13 @@ export default function ReportsPage() {
           <TabsTrigger value="cash-book" data-testid="report-tab-cash-book">Cash Book</TabsTrigger>
           <TabsTrigger value="bank-book" data-testid="report-tab-bank-book">Bank Book</TabsTrigger>
           <TabsTrigger value="journal-book" data-testid="report-tab-journal-book">Journal Book</TabsTrigger>
+          <TabsTrigger value="reconciliation" data-testid="report-tab-reconciliation">Reconciliation</TabsTrigger>
         </TabsList>
       </Tabs>
 
       {/* Filters */}
       <div className="flex items-end gap-3 flex-wrap bg-white p-3 rounded-md border border-slate-200 no-print">
-        {(activeReport === "holding" || activeReport === "customer-stmt" || activeReport === "sale-txn" || activeReport === "party-rental") && (
+        {(activeReport === "holding" || activeReport === "customer-stmt" || activeReport === "sale-txn" || activeReport === "party-rental" || activeReport === "reconciliation") && (
           <div>
             <Label className="text-xs">Customer</Label>
             <Select value={filters.customerId} onValueChange={(v) => setFilters({ ...filters, customerId: v })}>
@@ -307,7 +330,7 @@ export default function ReportsPage() {
             </Select>
           </div>
         )}
-        {(activeReport === "holding" || activeReport === "cylinder-rotation" || activeReport === "sale-txn") && (
+        {(activeReport === "holding" || activeReport === "cylinder-rotation" || activeReport === "sale-txn" || activeReport === "reconciliation") && (
           <div>
             <Label className="text-xs">Gas Type</Label>
             <Select value={filters.gasCode} onValueChange={(v) => setFilters({ ...filters, gasCode: v })}>
@@ -779,6 +802,138 @@ export default function ReportsPage() {
                 </tbody>
               </table>
             }
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Reconciliation */}
+      {activeReport === "reconciliation" && (
+        <Card className="border border-slate-200 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base" style={{ fontFamily: "var(--font-heading)" }}>Holding Parity / Reconciliation</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {reconciliationLoading ? <div className="py-8 text-center text-slate-400">Loading...</div> : !reconciliationData ? <div className="py-8 text-center text-slate-400">No data</div> : (
+              <div className="space-y-6">
+                {/* Summary */}
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  <div className="bg-slate-50 rounded-md p-3 text-center">
+                    <div className="text-2xl font-bold text-slate-800">{reconciliationData.summary?.totalGroups || 0}</div>
+                    <div className="text-xs text-slate-500 mt-1">Total Groups</div>
+                  </div>
+                  <div className="bg-green-50 rounded-md p-3 text-center">
+                    <div className="text-2xl font-bold text-green-700">{reconciliationData.summary?.reconciledCount || 0}</div>
+                    <div className="text-xs text-green-600 mt-1">Reconciled</div>
+                  </div>
+                  <div className={`rounded-md p-3 text-center ${reconciliationData.summary?.mismatchCount ? 'bg-red-50' : 'bg-slate-50'}`}>
+                    <div className={`text-2xl font-bold ${reconciliationData.summary?.mismatchCount ? 'text-red-700' : 'text-slate-800'}`}>{reconciliationData.summary?.mismatchCount || 0}</div>
+                    <div className="text-xs text-slate-500 mt-1">Mismatches</div>
+                  </div>
+                  <div className={`rounded-md p-3 text-center ${reconciliationData.summary?.missingEcrCount ? 'bg-amber-50' : 'bg-slate-50'}`}>
+                    <div className={`text-2xl font-bold ${reconciliationData.summary?.missingEcrCount ? 'text-amber-700' : 'text-slate-800'}`}>{reconciliationData.summary?.missingEcrCount || 0}</div>
+                    <div className="text-xs text-slate-500 mt-1">Missing ECR</div>
+                  </div>
+                  <div className={`rounded-md p-3 text-center ${reconciliationData.summary?.duplicateIssueCount ? 'bg-red-50' : 'bg-slate-50'}`}>
+                    <div className={`text-2xl font-bold ${reconciliationData.summary?.duplicateIssueCount ? 'text-red-700' : 'text-slate-800'}`}>{reconciliationData.summary?.duplicateIssueCount || 0}</div>
+                    <div className="text-xs text-slate-500 mt-1">Duplicate Issues</div>
+                  </div>
+                </div>
+
+                {/* Mismatches */}
+                {(reconciliationData.mismatches || []).length > 0 && (
+                  <div>
+                    <h3 className="font-semibold mb-2 text-red-700">⚠ Mismatches ({reconciliationData.mismatches.length})</h3>
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr className="bg-red-50 border-y border-red-200 text-xs uppercase tracking-wider text-red-600 font-semibold">
+                          <th className="px-3 py-1.5">Customer</th>
+                          <th className="px-3 py-1.5">Gas</th>
+                          <th className="px-3 py-1.5">Owner</th>
+                          <th className="px-3 py-1.5 text-right">Issued</th>
+                          <th className="px-3 py-1.5 text-right">Returned</th>
+                          <th className="px-3 py-1.5 text-right">Balance</th>
+                          <th className="px-3 py-1.5 text-right">Active Holdings</th>
+                          <th className="px-3 py-1.5 text-right">Delta</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reconciliationData.mismatches.map((m, idx) => (
+                          <tr key={idx} className="border-b border-red-100 bg-red-50/50">
+                            <td className="px-3 py-1.5">{m.customerCode} - {m.customerName}</td>
+                            <td className="px-3 py-1.5">{m.gasCode}</td>
+                            <td className="px-3 py-1.5">{m.ownerCode}</td>
+                            <td className="px-3 py-1.5 text-right">{m.issued}</td>
+                            <td className="px-3 py-1.5 text-right">{m.returned}</td>
+                            <td className="px-3 py-1.5 text-right font-medium">{m.balance}</td>
+                            <td className="px-3 py-1.5 text-right">{m.activeHoldings}</td>
+                            <td className="px-3 py-1.5 text-right font-bold text-red-600">{m.delta > 0 ? '+' : ''}{m.delta}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Missing ECR */}
+                {(reconciliationData.missingEcr || []).length > 0 && (
+                  <div>
+                    <h3 className="font-semibold mb-2 text-amber-700">⚠ Missing ECR Records ({reconciliationData.missingEcr.length})</h3>
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr className="bg-amber-50 border-y border-amber-200 text-xs uppercase tracking-wider text-amber-600 font-semibold">
+                          <th className="px-3 py-1.5">Customer</th>
+                          <th className="px-3 py-1.5">Cylinder</th>
+                          <th className="px-3 py-1.5">Issued</th>
+                          <th className="px-3 py-1.5">Returned</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reconciliationData.missingEcr.map((m, idx) => (
+                          <tr key={idx} className="border-b border-amber-100">
+                            <td className="px-3 py-1.5">{m.customerCode}</td>
+                            <td className="px-3 py-1.5 font-mono text-xs">{m.cylinderNumber}</td>
+                            <td className="px-3 py-1.5">{formatDate(m.issuedAt)}</td>
+                            <td className="px-3 py-1.5">{m.returnedAt ? formatDate(m.returnedAt) : '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Duplicate Issues */}
+                {(reconciliationData.duplicateIssues || []).length > 0 && (
+                  <div>
+                    <h3 className="font-semibold mb-2 text-red-700">⚠ Duplicate Issues ({reconciliationData.duplicateIssues.length})</h3>
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr className="bg-red-50 border-y border-red-200 text-xs uppercase tracking-wider text-red-600 font-semibold">
+                          <th className="px-3 py-1.5">Cylinder</th>
+                          <th className="px-3 py-1.5 text-right">Active Holdings</th>
+                          <th className="px-3 py-1.5">Customers</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reconciliationData.duplicateIssues.map((d, idx) => (
+                          <tr key={idx} className="border-b border-red-100">
+                            <td className="px-3 py-1.5 font-mono text-xs">{d.cylinderNumber}</td>
+                            <td className="px-3 py-1.5 text-right font-bold text-red-600">{d.count}</td>
+                            <td className="px-3 py-1.5 text-xs">{d.records?.map(r => r.customerCode).join(', ')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* All Clear */}
+                {!reconciliationData.mismatches?.length && !reconciliationData.missingEcr?.length && !reconciliationData.duplicateIssues?.length && (
+                  <div className="py-8 text-center text-green-600 font-medium">
+                    ✓ All holdings are reconciled. No mismatches found.
+                  </div>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

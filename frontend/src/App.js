@@ -11,6 +11,7 @@ import OrdersPage from "@/pages/masters/OrdersPage";
 import TransactionsPage from "@/pages/transactions/TransactionsPage";
 import EcrPage from "@/pages/transactions/EcrPage";
 import ChallansPage from "@/pages/transactions/ChallansPage";
+import TransfersPage from "@/pages/transactions/TransfersPage";
 import LedgerPage from "@/pages/accounting/LedgerPage";
 import CashVoucherPage from "@/pages/accounting/CashVoucherPage";
 import BankVoucherPage from "@/pages/accounting/BankVoucherPage";
@@ -58,6 +59,7 @@ function AppRoutes() {
         <Route path="transactions" element={<TransactionsPage />} />
         <Route path="ecr" element={<EcrPage />} />
         <Route path="challans" element={<ChallansPage />} />
+        <Route path="transfers" element={<TransfersPage />} />
         <Route path="ledger" element={<LedgerPage />} />
         <Route path="cash-vouchers" element={<CashVoucherPage />} />
         <Route path="bank-vouchers" element={<BankVoucherPage />} />

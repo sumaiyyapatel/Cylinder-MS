@@ -4,6 +4,7 @@ const { authenticate, authorize } = require('../lib/auth');
 const asyncHandler = require('../middleware/asyncHandler');
 const { round2 } = require('../services/businessRules');
 const { generateLedgerVoucherNumber } = require('../services/numberingService');
+const { validateVoucherEntry, validateBalance } = require('../services/ledgerValidationService');
 
 const router = express.Router();
 
@@ -64,6 +65,22 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'ACCOUNTANT'), asyn
     },
   });
   res.status(201).json(entry);
+}));
+
+// POST /api/ledger/validate - validate voucher entry before posting
+router.post('/validate', authenticate, authorize('ADMIN', 'MANAGER', 'ACCOUNTANT'), asyncHandler(async (req, res) => {
+  const result = validateVoucherEntry(req.body);
+  res.json(result);
+}));
+
+// POST /api/ledger/balance-check - validate that a set of entries is balanced
+router.post('/balance-check', authenticate, authorize('ADMIN', 'MANAGER', 'ACCOUNTANT'), asyncHandler(async (req, res) => {
+  const { entries } = req.body;
+  if (!Array.isArray(entries)) {
+    return res.status(400).json({ error: 'entries must be an array' });
+  }
+  const result = validateBalance(entries);
+  res.json(result);
 }));
 
 module.exports = router;

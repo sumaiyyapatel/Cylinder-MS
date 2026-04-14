@@ -34,6 +34,7 @@ const navGroups = [
       { to: "/transactions", icon: ArrowLeftRight, label: "Bill Cum Challan" },
       { to: "/ecr", icon: RotateCcw, label: "ECR (Returns)" },
       { to: "/challans", icon: Truck, label: "Challans" },
+      { to: "/transfers", icon: ArrowLeftRight, label: "Transfers" },
       { to: "/ledger", icon: BookOpen, label: "Ledger / Vouchers" },
     ],
   },

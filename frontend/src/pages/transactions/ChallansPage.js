@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, Printer, Trash2 } from "lucide-react";
+import { Plus, Printer, Trash2, FileText, ArrowRight } from "lucide-react";
 import { generateChallanPDF } from "@/lib/pdf-export";
 
 export default function ChallansPage() {
@@ -25,12 +25,14 @@ export default function ChallansPage() {
     vehicleNumber: "",
     transactionType: "DELIVERY",
     linkedBillId: "",
+    gasCode: "",
     cylinders: [{ cylinderNumber: "" }],
   });
 
   const { data, isLoading } = useQuery({ queryKey: ["challans", page], queryFn: () => api.get("/challans", { params: { page, limit } }).then(r => r.data) });
   const { data: customers } = useQuery({ queryKey: ["customers-list"], queryFn: () => api.get("/customers", { params: { limit: 200 } }).then(r => r.data) });
   const { data: bills } = useQuery({ queryKey: ["transaction-bills-list"], queryFn: () => api.get("/transactions", { params: { page: 1, limit: 200 } }).then(r => r.data) });
+  const { data: gasTypes } = useQuery({ queryKey: ["gasTypes"], queryFn: () => api.get("/gas-types").then(r => r.data) });
 
   const saveMut = useMutation({
     mutationFn: (d) => api.post("/challans", d),
@@ -47,11 +49,23 @@ export default function ChallansPage() {
         vehicleNumber: "",
         transactionType: "DELIVERY",
         linkedBillId: "",
+        gasCode: "",
         cylinders: [{ cylinderNumber: "" }],
       });
       toast.success("Challan created");
     },
     onError: (e) => toast.error(e.response?.data?.error || "Failed"),
+  });
+
+  const convertMut = useMutation({
+    mutationFn: (id) => api.post(`/challans/${id}/convert-to-bill`),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["challans"] });
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      toast.success(`Converted to bill ${res.data.billNumber || ""}`);
+    },
+    onError: (e) => toast.error(e.response?.data?.error || "Conversion failed"),
   });
 
   const addCylinderRow = () => setForm((f) => ({ ...f, cylinders: [...f.cylinders, { cylinderNumber: "" }] }));
@@ -63,6 +77,22 @@ export default function ChallansPage() {
   const removeCylinderRow = (idx) => {
     if (form.cylinders.length <= 1) return;
     setForm({ ...form, cylinders: form.cylinders.filter((_, i) => i !== idx) });
+  };
+
+  const getStatusBadge = (status, linkedBill) => {
+    if (status === "BILLED" || linkedBill) {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-full bg-green-100 text-green-700">
+          BILLED
+          {linkedBill?.billNumber && <span className="ml-1 font-mono">({linkedBill.billNumber})</span>}
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-full bg-amber-100 text-amber-700">
+        OPEN
+      </span>
+    );
   };
 
   return (
@@ -77,13 +107,14 @@ export default function ChallansPage() {
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-xs uppercase tracking-wider font-semibold">
                 <th className="px-3 py-2">Challan No</th><th className="px-3 py-2">Date</th><th className="px-3 py-2">Customer</th>
-                <th className="px-3 py-2">Owner</th><th className="px-3 py-2">Cyls</th><th className="px-3 py-2">Vehicle</th><th className="px-3 py-2">Type</th>
+                <th className="px-3 py-2">Owner</th><th className="px-3 py-2">Cyls</th><th className="px-3 py-2">Vehicle</th>
+                <th className="px-3 py-2">Type</th><th className="px-3 py-2">Status</th>
                 <th className="px-3 py-2 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {isLoading ? <tr><td colSpan={7} className="px-3 py-8 text-center text-slate-400">Loading...</td></tr> :
-                (data?.data || []).length === 0 ? <tr><td colSpan={7} className="px-3 py-8 text-center text-slate-400">No challans</td></tr> :
+              {isLoading ? <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-400">Loading...</td></tr> :
+                (data?.data || []).length === 0 ? <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-400">No challans</td></tr> :
                 (data?.data || []).map(c => (
                   <tr key={c.id} className="border-b border-slate-100 hover:bg-slate-50">
                     <td className="px-3 py-2 font-mono text-xs font-medium">{c.challanNumber}</td>
@@ -93,16 +124,36 @@ export default function ChallansPage() {
                     <td className="px-3 py-2">{c.cylindersCount || "-"}</td>
                     <td className="px-3 py-2">{c.vehicleNumber || "-"}</td>
                     <td className="px-3 py-2">{c.transactionType || "-"}</td>
+                    <td className="px-3 py-2">{getStatusBadge(c.status, c.linkedBill)}</td>
                     <td className="px-3 py-2 text-right">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => generateChallanPDF(c, c.customer)}
-                        className="h-7 px-2 text-xs"
-                      >
-                        <Printer className="w-3.5 h-3.5 mr-1" /> Print
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        {c.status !== "BILLED" && !c.linkedBillId && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              if (window.confirm(`Convert challan ${c.challanNumber} to a bill?`)) {
+                                convertMut.mutate(c.id);
+                              }
+                            }}
+                            className="h-7 px-2 text-xs text-blue-600 border-blue-200 hover:bg-blue-50"
+                            disabled={convertMut.isPending}
+                            title="Convert to Bill"
+                          >
+                            <ArrowRight className="w-3.5 h-3.5 mr-1" /> To Bill
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => generateChallanPDF(c, c.customer)}
+                          className="h-7 px-2 text-xs"
+                        >
+                          <Printer className="w-3.5 h-3.5 mr-1" /> Print
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -154,6 +205,7 @@ export default function ChallansPage() {
                 linkedBillId: form.linkedBillId ? parseInt(form.linkedBillId) : undefined,
                 cylinders: validCylinders.length ? validCylinders : undefined,
                 cylindersCount: validCylinders.length || form.cylindersCount,
+                gasCode: form.gasCode || undefined,
               });
             }}
             className="grid grid-cols-2 gap-4"
@@ -161,6 +213,15 @@ export default function ChallansPage() {
             <div><Label className="text-sm">Date</Label><Input type="date" value={form.challanDate} onChange={(e) => setForm({ ...form, challanDate: e.target.value })} className="h-9 mt-1" /></div>
             <div><Label className="text-sm">Customer *</Label><Select value={form.customerId} onValueChange={(v) => setForm({ ...form, customerId: v })}><SelectTrigger className="h-9 mt-1"><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{(customers?.data || []).map(c => <SelectItem key={c.id} value={String(c.id)}>{c.code} - {c.name}</SelectItem>)}</SelectContent></Select></div>
             <div><Label className="text-sm">Owner</Label><Select value={form.cylinderOwner} onValueChange={(v) => setForm({ ...form, cylinderOwner: v })}><SelectTrigger className="h-9 mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="COC">COC</SelectItem><SelectItem value="POC">POC</SelectItem></SelectContent></Select></div>
+            <div>
+              <Label className="text-sm">Gas Type</Label>
+              <Select value={form.gasCode} onValueChange={(v) => setForm({ ...form, gasCode: v })}>
+                <SelectTrigger className="h-9 mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  {(gasTypes || []).map(g => <SelectItem key={g.gasCode} value={g.gasCode}>{g.gasCode} - {g.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
             <div><Label className="text-sm">Cylinders Count</Label><Input value={form.cylindersCount} onChange={(e) => setForm({ ...form, cylindersCount: e.target.value })} type="number" className="h-9 mt-1" /></div>
             <div><Label className="text-sm">Vehicle No</Label><Input value={form.vehicleNumber} onChange={(e) => setForm({ ...form, vehicleNumber: e.target.value })} className="h-9 mt-1" /></div>
             <div><Label className="text-sm">Type</Label><Select value={form.transactionType} onValueChange={(v) => setForm({ ...form, transactionType: v })}><SelectTrigger className="h-9 mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="DELIVERY">Delivery</SelectItem><SelectItem value="RETURN">Return</SelectItem></SelectContent></Select></div>

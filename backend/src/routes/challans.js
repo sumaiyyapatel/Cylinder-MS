@@ -4,7 +4,7 @@ const { authenticate, authorize } = require('../lib/auth');
 const asyncHandler = require('../middleware/asyncHandler');
 const { AppError } = require('../middleware/errorHandler');
 const { round2, deriveNextHydroDueDate, isHydroTestOverdue, calculateHoldDays, isPocOwner, normalizeOwnerCode } = require('../services/businessRules');
-const { createChallan } = require('../services/challanService');
+const { createChallan, convertChallanToBill } = require('../services/challanService');
 const { updateCylinderStatus } = require('../services/cylinderStatusService');
 const { postLedgerEntries } = require('../services/ledgerPostingService');
 const { createAuditLog } = require('../services/auditService');
@@ -31,7 +31,10 @@ router.get('/', authenticate, asyncHandler(async (req, res) => {
       skip,
       take: parseInt(limit, 10),
       orderBy: { challanDate: 'desc' },
-      include: { customer: { select: { id: true, code: true, name: true } } },
+      include: {
+        customer: { select: { id: true, code: true, name: true } },
+        linkedBill: { select: { id: true, billNumber: true } },
+      },
     }),
     prisma.challan.count({ where }),
   ]);
@@ -85,10 +88,23 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
       billAmount,
       taxableAmount,
       gstAmount,
+      gasCode: req.body.gasCode || null,
     });
   });
 
   res.status(201).json(created);
+}));
+
+// POST /api/challans/:id/convert-to-bill
+router.post('/:id/convert-to-bill', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
+  const challanId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(challanId) || challanId <= 0) throw new AppError(400, 'Invalid challan id');
+
+  const result = await prisma.$transaction(async (tx) => {
+    return await convertChallanToBill(tx, challanId, req.user.sub);
+  });
+
+  res.status(201).json({ message: 'Challan converted to bill', ...result });
 }));
 
 module.exports = router;

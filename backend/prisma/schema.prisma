@@ -312,11 +312,13 @@ model Challan {
   challanNumber   String    @unique @map("challan_number")
   challanDate     DateTime  @map("challan_date")
   customerId      Int       @map("customer_id")
+  gasCode         String?   @map("gas_code")
   cylinderOwner   String?   @map("cylinder_owner")
   cylindersCount  Int?      @map("cylinders_count")
   quantityCum     Decimal?  @map("quantity_cum")
   vehicleNumber   String?   @map("vehicle_number")
   transactionType String?   @map("transaction_type")
+  status          String    @default("OPEN")
   linkedBillId    Int?      @map("linked_bill_id")
   operatorId      Int?      @map("operator_id")
   createdAt       DateTime  @default(now()) @map("created_at")
@@ -326,6 +328,7 @@ model Challan {
 
   @@index([linkedBillId])
   @@index([customerId, challanDate])
+  @@index([status])
 
   @@map("challans")
 }
@@ -422,4 +425,23 @@ model CompanySetting {
   value    String
 
   @@map("company_settings")
+}
+
+model InterCompanyTransfer {
+  id              Int       @id @default(autoincrement())
+  transferNumber  String    @unique @map("transfer_number")
+  transferDate    DateTime  @map("transfer_date")
+  sourceCompany   String    @map("source_company")
+  destCompany     String    @map("dest_company")
+  gasCode         String?   @map("gas_code")
+  cylindersCount  Int       @default(0) @map("cylinders_count")
+  quantityCum     Decimal?  @map("quantity_cum")
+  vehicleNumber   String?   @map("vehicle_number")
+  notes           String?
+  operatorId      Int?      @map("operator_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@index([sourceCompany, destCompany])
+  @@index([transferDate])
+  @@map("inter_company_transfers")
 }

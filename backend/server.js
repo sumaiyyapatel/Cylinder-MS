@@ -19,6 +19,7 @@ const reportsRoutes = require('./src/routes/reports');
 const settingsRoutes = require('./src/routes/settings');
 const usersRoutes = require('./src/routes/users');
 const alertsRoutes = require('./src/routes/alerts');
+const transfersRoutes = require('./src/routes/transfers');
 
 const app = express();
 const PORT = 8001;
@@ -71,6 +72,7 @@ app.use('/api/reports', reportsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/alerts', alertsRoutes);
+app.use('/api/transfers', transfersRoutes);
 
 app.use(globalErrorHandler);
 
