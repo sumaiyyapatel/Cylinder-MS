@@ -17,7 +17,9 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "twilio": "^4.1.0",
+    "puppeteer": "^20.7.0"
   },
   "devDependencies": {
     "prisma": "^6.5.0"

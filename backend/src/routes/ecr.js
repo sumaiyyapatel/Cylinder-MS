@@ -8,6 +8,7 @@ const { generateEcrNumber } = require('../services/numberingService');
 const { updateCylinderStatus } = require('../services/cylinderStatusService');
 const { createAuditLog } = require('../services/auditService');
 const { postLedgerEntries } = require('../services/ledgerPostingService');
+const { returnCylinder } = require('../services/cylinderHoldingService');
 const {
   parseRequiredInt,
   parseOptionalNonNegativeNumber,
@@ -73,6 +74,7 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
       throw new AppError(404, 'Cylinder not found');
     }
 
+    // Ensure a matching holding exists
     const holding = await tx.cylinderHolding.findFirst({
       where: { cylinderId: cylinder.id, customerId: customerIdNum, status: 'HOLDING' },
       include: { transaction: true },
@@ -82,72 +84,18 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
       throw new AppError(400, 'No matching issue found for this customer and cylinder');
     }
 
-    const issueDate = holding.issuedAt;
-    const issueNumber = holding.transaction?.billNumber || null;
-    if (returnDate < new Date(issueDate)) {
-      throw new AppError(400, 'Return date cannot be before issue date');
-    }
-
-    const holdDays = calculateHoldDays(issueDate, returnDate);
-    const effectiveOwner = normalizeOwnerCode(cylinderOwner || cylinder.ownerCode);
-
-    let rentAmount = 0;
-    if (!isPocOwner(effectiveOwner)) {
-      const rateConfig = await getEffectiveRate(tx, { customerId: customerIdNum, gasCode: gasCode || cylinder.gasCode, ownerCode: effectiveOwner });
-      rentAmount = calculateRent(holdDays, rateConfig);
-    }
-    rentAmount = round2(rentAmount);
-
-    await tx.cylinderHolding.update({
-      where: { id: holding.id },
-      data: { returnedAt: returnDate, holdDays, rentAmount, status: 'RETURNED' },
-    });
-
-    await updateCylinderStatus(tx, cylinder.id, 'IN_STOCK');
-
-    const ecrNumber = await generateEcrNumber(tx, returnDate);
-    const createdEcr = await tx.ecrRecord.create({
-      data: {
-        ecrNumber,
-        ecrDate: returnDate,
-        customerId: customerIdNum,
-        gasCode: gasCode || cylinder.gasCode,
-        cylinderOwner: effectiveOwner,
-        cylinderNumber: normalizedCylinderNumber,
-        issueNumber,
-        issueDate,
-        holdDays,
-        rentAmount,
-        challanNumber,
-        challanDate: parsedChallanDate,
-        vehicleNumber,
-        operatorId: req.user.sub,
-        quantityCum: parsedQuantity == null ? null : round2(parsedQuantity),
-      },
-    });
-
-    // If rental applies, post ledger entries (customer DR, rental income CR)
-    if (rentAmount && rentAmount > 0) {
-      const customerRec = await tx.customer.findUnique({ where: { id: customerIdNum }, select: { code: true } });
-      const ledgerEntries = [
-        { partyCode: customerRec?.code || null, particular: `Rental for ${ecrNumber}`, narration: `Rental for ${ecrNumber}`, debitAmount: rentAmount, creditAmount: null, voucherRef: ecrNumber },
-        { partyCode: null, particular: `Rental Income ${ecrNumber}`, narration: `Rental Income ${ecrNumber}`, debitAmount: null, creditAmount: rentAmount, voucherRef: ecrNumber },
-      ];
-      await postLedgerEntries(tx, returnDate, ledgerEntries, req.user.sub);
-    }
-
-    await createAuditLog(tx, {
-      action: 'RETURN_CYLINDER',
-      module: 'ecr',
-      userId: req.user.sub,
-      entityId: String(createdEcr.id),
-      oldValue: { cylinderStatus: cylinder.status, holdingStatus: holding.status },
-      newValue: {
-        cylinderStatus: 'IN_STOCK',
-        holdingStatus: 'RETURNED',
-        cylinderNumber: normalizedCylinderNumber,
-        ecrNumber,
-      },
+    // Delegate close-and-create-ECR to cylinderHoldingService
+    const createdEcr = await returnCylinder(tx, {
+      holdingId: holding.id,
+      returnDate,
+      cylinderOwner,
+      gasCode,
+      challanNumber,
+      challanDate: parsedChallanDate,
+      vehicleNumber,
+      quantityCum: parsedQuantity,
+      operatorId: req.user.sub,
+      performedBy: req.user.sub,
     });
 
     return createdEcr;

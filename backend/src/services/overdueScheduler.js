@@ -70,6 +70,21 @@ function startOverdueCylinderScheduler() {
               alertSentAt: new Date(),
             },
           });
+
+          // Send WhatsApp overdue alerts (best-effort)
+          try {
+            const whatsappService = require('./whatsappService');
+            for (const h of newlyOverdueHoldings) {
+              const days = Math.ceil((new Date() - new Date(h.issuedAt)) / (1000 * 60 * 60 * 24));
+              try {
+                await whatsappService.sendOverdueAlert(h.customerId, h.cylinder?.cylinderNumber, days);
+              } catch (err) {
+                console.error('WhatsApp overdue send error for holding', h.id, err.message || err);
+              }
+            }
+          } catch (err) {
+            console.warn('WhatsApp service not available or failed:', err.message || err);
+          }
         }
         // Also check for hydro test due cylinders and create alerts
         try {

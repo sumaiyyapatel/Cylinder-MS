@@ -8,51 +8,14 @@ const {
   generateChallanNumber,
   generateEcrNumber,
 } = require('../src/services/numberingService');
+const { round2 } = require('../src/services/businessRules');
 
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('Seeding database...');
+  console.log('Seeding database with realistic operational data...');
 
-  // Areas
-  const areas = [
-    { areaCode: 'B', areaName: 'Butibori' },
-    { areaCode: 'K', areaName: 'Kamptee' },
-    { areaCode: 'N', areaName: 'Nagpur' },
-    { areaCode: 'W', areaName: 'Wardha' },
-    { areaCode: 'C', areaName: 'Chandrapur' },
-  ];
-  for (const a of areas) {
-    await prisma.area.upsert({ where: { areaCode: a.areaCode }, update: a, create: a });
-  }
-  console.log('Areas seeded');
-
-  // Gas Types
-  const gasTypes = [
-    { gasCode: 'OX', name: 'Oxygen Gas', chemicalName: 'Oxygen', formula: 'O2', hsnCode: '28044090', gstRate: 12, itemCode: 'OX' },
-    { gasCode: 'AR', name: 'Argon', chemicalName: 'Argon', formula: 'Ar', hsnCode: '28043000', gstRate: 12, itemCode: 'AR' },
-    { gasCode: 'MO', name: 'Medical Oxygen', chemicalName: 'Medical Oxygen', formula: 'O2', hsnCode: '28044090', gstRate: 5, itemCode: 'MO' },
-    { gasCode: 'N2', name: 'Nitrogen', chemicalName: 'Nitrogen', formula: 'N2', hsnCode: '28043000', gstRate: 12, itemCode: 'N2' },
-    { gasCode: 'CO', name: 'Carbon Dioxide', chemicalName: 'Carbon Dioxide', formula: 'CO2', hsnCode: '28111900', gstRate: 12, itemCode: 'CO' },
-  ];
-  for (const g of gasTypes) {
-    await prisma.gasType.upsert({ where: { gasCode: g.gasCode }, update: g, create: g });
-  }
-  console.log('Gas types seeded');
-
-  // GST Rates
-  const gstRates = [
-    { gstCode: 'S01', gstName: 'GST @ 5%', rate: 5 },
-    { gstCode: 'S02', gstName: 'GST @ 12%', rate: 12 },
-    { gstCode: 'S03', gstName: 'GST @ 18%', rate: 18 },
-    { gstCode: 'S09', gstName: 'GST @ 0% (Exempt)', rate: 0 },
-  ];
-  for (const g of gstRates) {
-    await prisma.gstRate.upsert({ where: { gstCode: g.gstCode }, update: g, create: g });
-  }
-  console.log('GST rates seeded');
-
-  // Users
+  // Users (keep minimal)
   const users = [
     { username: 'admin', fullName: 'Administrator', role: 'ADMIN', password: 'Admin@123' },
     { username: 'operator', fullName: 'Operator User', role: 'OPERATOR', password: 'Operator@123' },
@@ -66,181 +29,262 @@ async function main() {
       create: { username: u.username, fullName: u.fullName, role: u.role, passwordHash: hash },
     });
   }
-  console.log('Users seeded');
 
-  // Company Settings
+  // Company settings
   const settings = [
-    { key: 'company_name', value: '[COMPANY NAME]' },
-    { key: 'company_address', value: '[COMPANY ADDRESS]' },
-    { key: 'company_city', value: '[CITY]' },
-    { key: 'company_gstin', value: '[GSTIN PLACEHOLDER]' },
-    { key: 'company_phone', value: '[PHONE]' },
+    { key: 'company_name', value: 'Patel & Company' },
+    { key: 'company_address', value: 'MIDC Industrial Area' },
+    { key: 'company_city', value: 'Nagpur' },
+    { key: 'company_gstin', value: '27PATEL1234X1Z5' },
+    { key: 'company_phone', value: '0712-1234567' },
     { key: 'overdue_threshold_days', value: '30' },
     { key: 'financial_year', value: '2025-26' },
   ];
   for (const s of settings) {
     await prisma.companySetting.upsert({ where: { key: s.key }, update: s, create: s });
   }
-  console.log('Company settings seeded');
 
-  // Sample Customers
+  // 1) Areas
+  const areas = [
+    { areaCode: 'NGP', areaName: 'Nagpur Central' },
+    { areaCode: 'KMP', areaName: 'Kamptee Road' },
+    { areaCode: 'ITW', areaName: 'Itwari' },
+    { areaCode: 'MNC', areaName: 'Mankapur' },
+    { areaCode: 'HNG', areaName: 'Hingna' },
+  ];
+  for (const a of areas) {
+    await prisma.area.upsert({ where: { areaCode: a.areaCode }, update: a, create: a });
+  }
+
+  // 2) Gas types
+  const gasTypes = [
+    { gasCode: 'OXY', name: 'Oxygen', chemicalName: 'Oxygen', formula: 'O2', hsnCode: '28044090', gstRate: 12, itemCode: 'OXY' },
+    { gasCode: 'N2', name: 'Nitrogen', chemicalName: 'Nitrogen', formula: 'N2', hsnCode: '28043000', gstRate: 12, itemCode: 'N2' },
+    { gasCode: 'ARG', name: 'Argon', chemicalName: 'Argon', formula: 'Ar', hsnCode: '28043000', gstRate: 12, itemCode: 'ARG' },
+    { gasCode: 'CO2', name: 'Carbon Dioxide', chemicalName: 'Carbon Dioxide', formula: 'CO2', hsnCode: '28111900', gstRate: 12, itemCode: 'CO2' },
+  ];
+  for (const g of gasTypes) await prisma.gasType.upsert({ where: { gasCode: g.gasCode }, update: g, create: g });
+
+  // 3) Customers
   const customers = [
-    { code: 'C0001', name: 'Nagpur Steel Works', title: 'M/s', address1: 'Plot 12, MIDC', city: 'Nagpur', pin: '440001', phone: '0712-2345678', areaCode: 'N', contactPerson: 'Ramesh Gupta' },
-    { code: 'C0002', name: 'Wardha Auto Parts', title: 'M/s', address1: 'Industrial Estate', city: 'Wardha', pin: '442001', phone: '07152-234567', areaCode: 'W', contactPerson: 'Suresh Patil' },
-    { code: 'C0003', name: 'City Hospital', title: 'Dr.', address1: 'Civil Lines', city: 'Nagpur', pin: '440001', phone: '0712-3456789', areaCode: 'N', contactPerson: 'Dr. Mehta' },
-    { code: 'C0004', name: 'Butibori Fabricators', title: 'M/s', address1: 'Sector 5, MIDC Butibori', city: 'Nagpur', pin: '441108', phone: '0712-4567890', areaCode: 'B', contactPerson: 'Vijay Kumar' },
-    { code: 'C0005', name: 'Kamptee Engineering', title: 'M/s', address1: 'Main Road', city: 'Kamptee', pin: '441002', phone: '07109-234567', areaCode: 'K', contactPerson: 'Aniket Joshi' },
+    { code: 'JGW01', name: 'Jubilee Glass Works Pvt Ltd', areaCode: 'NGP', phone: '9325357257', gstin: '27ABCDE1234F1Z5', contactPerson: 'Mr. Patel' },
+    { code: 'MED01', name: 'City Care Hospital', areaCode: 'KMP', phone: '9370706868', gstin: '27PQRSX5678L1Z2', contactPerson: 'Dr. Singh' },
+    { code: 'IND01', name: 'Sharma Engineering Works', areaCode: 'HNG', phone: '9876543210', gstin: '27LMNOP1234T1Z9', contactPerson: 'Ravi Sharma' },
   ];
   for (const c of customers) {
     await prisma.customer.upsert({ where: { code: c.code }, update: c, create: c });
   }
-  console.log('Customers seeded');
 
-  // Sample Cylinders
-  const cylinders = [
-    { ownerCode: 'COC', cylinderNumber: 'COC-OX-001', particular: '47L Oxygen', capacity: 47, gasCode: 'OX', status: 'IN_STOCK' },
-    { ownerCode: 'COC', cylinderNumber: 'COC-OX-002', particular: '47L Oxygen', capacity: 47, gasCode: 'OX', status: 'WITH_CUSTOMER' },
-    { ownerCode: 'POC', cylinderNumber: 'POC-AR-001', particular: '47L Argon', capacity: 47, gasCode: 'AR', status: 'IN_STOCK' },
-    { ownerCode: 'COC', cylinderNumber: 'COC-N2-001', particular: '47L Nitrogen', capacity: 47, gasCode: 'N2', status: 'IN_STOCK' },
-    { ownerCode: 'COC', cylinderNumber: 'COC-MO-001', particular: '10L Medical O2', capacity: 10, gasCode: 'MO', status: 'WITH_CUSTOMER' },
-    { ownerCode: 'POC', cylinderNumber: 'POC-CO-001', particular: '30L CO2', capacity: 30, gasCode: 'CO', status: 'DAMAGED' },
-    { ownerCode: 'COC', cylinderNumber: 'COC-OX-003', particular: '47L Oxygen', capacity: 47, gasCode: 'OX', status: 'UNDER_TEST' },
-    { ownerCode: 'COC', cylinderNumber: 'COC-OX-004', particular: '47L Oxygen', capacity: 47, gasCode: 'OX', status: 'IN_STOCK' },
+  // 4) Cylinders (seed a few specific ones + bulk oxygen cylinders)
+  const baseCylinders = [
+    { cylinderNumber: 'OXY001', gasCode: 'OXY', ownerCode: 'COC', status: 'IN_STOCK', hydroTestDate: new Date('2024-01-10'), nextTestDue: new Date('2029-01-10'), particular: '47L Oxygen', capacity: 47 },
+    { cylinderNumber: 'OXY002', gasCode: 'OXY', ownerCode: 'COC', status: 'IN_STOCK', hydroTestDate: new Date('2023-06-01'), nextTestDue: new Date('2028-06-01'), particular: '47L Oxygen', capacity: 47 },
+    { cylinderNumber: 'N2001', gasCode: 'N2', ownerCode: 'POC', status: 'IN_STOCK', hydroTestDate: new Date('2021-03-01'), nextTestDue: new Date('2026-03-01'), particular: '47L Nitrogen', capacity: 47 },
+    { cylinderNumber: 'ARG001', gasCode: 'ARG', ownerCode: 'COC', status: 'DAMAGED', hydroTestDate: new Date('2020-08-10'), nextTestDue: new Date('2025-08-10'), particular: '47L Argon', capacity: 47 },
   ];
-  for (const c of cylinders) {
+  for (const c of baseCylinders) {
     await prisma.cylinder.upsert({ where: { cylinderNumber: c.cylinderNumber }, update: c, create: c });
   }
-  console.log('Cylinders seeded');
 
-  // Sample Rate List
-  const rates = [
-    { gasCode: 'OX', ownerCode: 'COC', cylinderType: '47L', ratePerUnit: 180, rentalFreeDays: 7, rentalRate1: 10, rentalDaysFrom1: 8, rentalDaysTo1: 15, rentalRate2: 15, rentalDaysFrom2: 16, rentalDaysTo2: 30, rentalRate3: 25, rentalDaysFrom3: 31, rentalDaysTo3: 999, gstRate: 12 },
-    { gasCode: 'AR', ownerCode: 'POC', cylinderType: '47L', ratePerUnit: 350, rentalFreeDays: 7, rentalRate1: 15, rentalDaysFrom1: 8, rentalDaysTo1: 15, rentalRate2: 20, rentalDaysFrom2: 16, rentalDaysTo2: 30, rentalRate3: 30, rentalDaysFrom3: 31, rentalDaysTo3: 999, gstRate: 12 },
-    { gasCode: 'MO', ownerCode: 'COC', cylinderType: '10L', ratePerUnit: 250, rentalFreeDays: 3, rentalRate1: 20, rentalDaysFrom1: 4, rentalDaysTo1: 10, rentalRate2: 30, rentalDaysFrom2: 11, rentalDaysTo2: 20, rentalRate3: 50, rentalDaysFrom3: 21, rentalDaysTo3: 999, gstRate: 5 },
+  // Bulk oxygen cylinders OXY003..OXY062 (60 items)
+  const moreCylinders = Array.from({ length: 60 }, (_, i) => ({
+    cylinderNumber: `OXY${String(i + 3).padStart(3, '0')}`,
+    gasCode: 'OXY',
+    ownerCode: i % 2 === 0 ? 'COC' : 'POC',
+    status: 'IN_STOCK',
+    particular: '47L Oxygen',
+    capacity: 47,
+  }));
+  for (const c of moreCylinders) {
+    await prisma.cylinder.upsert({ where: { cylinderNumber: c.cylinderNumber }, update: c, create: c });
+  }
+
+  // 5) Orders / Rate hints (create simple orders table entries)
+  const orders = [
+    { customerCode: 'JGW01', gasCode: 'OXY', rate: 120, freight: 20, gstPercent: 18 },
+    { customerCode: 'MED01', gasCode: 'OXY', rate: 100, freight: 10, gstPercent: 12 },
   ];
-  for (const r of rates) {
+  for (const o of orders) {
+    const cust = await prisma.customer.findUnique({ where: { code: o.customerCode } });
+    if (!cust) continue;
+    const exists = await prisma.order.findFirst({ where: { customerId: cust.id, gasCode: o.gasCode } });
+    if (!exists) {
+      await prisma.order.create({ data: { orderNumber: `ORD-${Math.floor(1000 + Math.random() * 9000)}`, orderDate: new Date(), customerId: cust.id, gasCode: o.gasCode, ownerCode: 'COC', quantityCum: 47, quantityCyl: 1, rate: o.rate, freightRate: o.freight, salesTaxRate: o.gstPercent, status: 'ACTIVE' } });
+    }
+  }
+
+  // 6) Rental config -> RateList entries (customer-specific where provided)
+  const rentalRates = [
+    {
+      ownerCode: 'JGW01',
+      gasCode: 'OXY',
+      cylinderType: '47L',
+      ratePerUnit: 120,
+      rentalFreeDays: 7,
+      rentalRate1: 5,
+      rentalDaysFrom1: 1,
+      rentalDaysTo1: 30,
+      rentalRate2: 8,
+      rentalDaysFrom2: 31,
+      rentalDaysTo2: 60,
+      rentalRate3: 12,
+      rentalDaysFrom3: 61,
+      rentalDaysTo3: 999,
+      gstRate: 18,
+    },
+    {
+      ownerCode: 'MED01',
+      gasCode: 'OXY',
+      cylinderType: '47L',
+      ratePerUnit: 100,
+      rentalFreeDays: 7,
+      rentalRate1: 4,
+      rentalDaysFrom1: 1,
+      rentalDaysTo1: 30,
+      rentalRate2: 6,
+      rentalDaysFrom2: 31,
+      rentalDaysTo2: 60,
+      rentalRate3: 10,
+      rentalDaysFrom3: 61,
+      rentalDaysTo3: 999,
+      gstRate: 12,
+    },
+    // Default company rate
+    {
+      ownerCode: 'COC',
+      gasCode: 'OXY',
+      cylinderType: '47L',
+      ratePerUnit: 150,
+      rentalFreeDays: 7,
+      rentalRate1: 6,
+      rentalDaysFrom1: 1,
+      rentalDaysTo1: 30,
+      rentalRate2: 9,
+      rentalDaysFrom2: 31,
+      rentalDaysTo2: 60,
+      rentalRate3: 14,
+      rentalDaysFrom3: 61,
+      rentalDaysTo3: 999,
+      gstRate: 12,
+    },
+  ];
+  for (const r of rentalRates) {
     const existing = await prisma.rateList.findFirst({ where: { gasCode: r.gasCode, ownerCode: r.ownerCode, cylinderType: r.cylinderType } });
     if (!existing) await prisma.rateList.create({ data: r });
+    else await prisma.rateList.update({ where: { id: existing.id }, data: r });
   }
-  console.log('Rate list seeded');
 
-  // --- Additional mock data for transactions, holdings, challans, ecr, ledger, salesbook, orders, alerts ---
+  // 7) Transactions (create two sample bills + transactions)
   const adminUser = await prisma.user.findUnique({ where: { username: 'admin' } });
 
-  // Sample Transaction + SalesBook + LedgerEntry + Holding for COC-OX-001 -> C0001
-  const cust1 = await prisma.customer.findUnique({ where: { code: 'C0001' } });
-  const cyl1 = await prisma.cylinder.findUnique({ where: { cylinderNumber: 'COC-OX-001' } });
-  if (cust1 && cyl1) {
-    const billDate = new Date();
-    const billNumber1 = await generateBillNumber(prisma, 'COC', billDate);
-    const txn1 = await prisma.transaction.create({
-      data: {
-        billNumber: billNumber1,
-        billDate,
-        customerId: cust1.id,
-        gasCode: cyl1.gasCode,
-        cylinderOwner: cyl1.ownerCode,
-        cylinderNumber: cyl1.cylinderNumber,
-        quantityCum: cyl1.capacity || 0,
-        transactionCode: 'ISSUE',
-        fullOrEmpty: 'F',
-        operatorId: adminUser?.id || null,
-      },
-    });
+  // Helper to create a bill + transaction + holding
+  async function issueCylinder({ customerCode, cylinderNumber, quantityCum = 1, billDate = new Date(), ownerCode = 'COC' }) {
+    const customer = await prisma.customer.findUnique({ where: { code: customerCode } });
+    const cylinder = await prisma.cylinder.findUnique({ where: { cylinderNumber } });
+    if (!customer || !cylinder) return null;
 
-    const rate = await prisma.rateList.findFirst({ where: { gasCode: cyl1.gasCode, ownerCode: cyl1.ownerCode } });
-    const unitRate = Number(rate?.ratePerUnit || 0);
-    const subtotal = Math.round((Number(cyl1.capacity || 0) * unitRate) * 100) / 100;
-    const gstRate = Number(rate?.gstRate || 0);
-    const gstAmount = Math.round((subtotal * (gstRate / 100)) * 100) / 100;
-    const totalAmount = Math.round((subtotal + gstAmount) * 100) / 100;
+    const billNumber = await generateBillNumber(prisma, ownerCode, billDate);
+    const rate = await prisma.rateList.findFirst({ where: { gasCode: cylinder.gasCode, ownerCode: customerCode } })
+      || await prisma.rateList.findFirst({ where: { gasCode: cylinder.gasCode, ownerCode } })
+      || { ratePerUnit: 0, gstRate: 0 };
 
-    const salesVoucher = await generateSalesVoucherNumber(prisma, billDate);
-    await prisma.salesBook.create({
-      data: {
-        voucherNumber: salesVoucher,
-        voucherDate: billDate,
-        partyCode: cust1.code,
-        documentNumber: billNumber1,
-        quantityIssued: cyl1.capacity || null,
-        unit: 'CM',
-        rate: unitRate || null,
-        gstCode: gstRate ? `S${Math.round(gstRate)}` : null,
-        subtotal,
-        gstAmount,
-        totalAmount,
-        transactionCode: 'S',
-        operatorId: adminUser?.id || null,
-        billNumber: billNumber1,
-      },
-    });
+    const unitRate = Number(rate.ratePerUnit || 0);
+    const taxable = round2(unitRate * Number(quantityCum || 0));
+    const gstAmount = round2((taxable * (Number(rate.gstRate || 0) / 100)));
+    const totalAmount = round2(taxable + gstAmount);
 
-    const ledgerVoucher = await generateLedgerVoucherNumber(prisma, 'JOURNAL', billDate);
-    await prisma.ledgerEntry.create({
-      data: {
-        voucherNumber: ledgerVoucher,
-        voucherDate: billDate,
-        partyCode: cust1.code,
-        particular: `Sales Bill ${billNumber1}`,
-        narration: `Taxable ${subtotal}, GST ${gstAmount}`,
-        debitAmount: totalAmount,
-        creditAmount: null,
-        transactionType: 'JOURNAL',
-        voucherRef: billNumber1,
-        operatorId: adminUser?.id || null,
-      },
-    });
+    const bill = await prisma.bill.create({ data: {
+      billNumber,
+      billDate,
+      customerId: customer.id,
+      gasCode: cylinder.gasCode,
+      cylinderOwner: ownerCode,
+      totalCylinders: 1,
+      totalQuantity: quantityCum,
+      unitRate: unitRate || null,
+      gstRate: round2(rate.gstRate || 0),
+      gstMode: 'INTRA',
+      taxableAmount: taxable,
+      gstAmount,
+      totalAmount,
+      operatorId: adminUser?.id || null,
+    } });
 
-    await prisma.cylinder.update({ where: { id: cyl1.id }, data: { status: 'WITH_CUSTOMER' } });
-    const holding1 = await prisma.cylinderHolding.create({ data: { cylinderId: cyl1.id, customerId: cust1.id, transactionId: txn1.id, issuedAt: billDate, status: 'HOLDING' } });
+    const txn = await prisma.transaction.create({ data: {
+      billId: bill.id,
+      billNumber: bill.billNumber,
+      billDate: billDate,
+      customerId: customer.id,
+      gasCode: cylinder.gasCode,
+      cylinderOwner: ownerCode,
+      cylinderNumber: cylinder.cylinderNumber,
+      quantityCum,
+      transactionCode: 'ISSUE',
+      fullOrEmpty: 'F',
+      operatorId: adminUser?.id || null,
+    } });
 
-    await prisma.auditLog.create({ data: { action: 'SEED_TXN', module: 'seed', userId: adminUser?.id || null, entityId: String(txn1.id), oldValue: null, newValue: { billNumber: billNumber1 } } });
+    await prisma.cylinder.update({ where: { id: cylinder.id }, data: { status: 'WITH_CUSTOMER' } });
+    await prisma.cylinderHolding.create({ data: { cylinderId: cylinder.id, customerId: customer.id, transactionId: txn.id, issuedAt: billDate, status: 'HOLDING' } });
+
+    return { bill, txn };
   }
 
-  // Create a challan linked to the transaction
-  const challanDate = new Date();
-  const someCust = await prisma.customer.findFirst();
-  if (someCust) {
-    const challanNumber = await generateChallanNumber(prisma, challanDate);
-    await prisma.challan.create({ data: { challanNumber, challanDate, customerId: someCust.id, cylinderOwner: 'COC', cylindersCount: 1, quantityCum: 47, vehicleNumber: 'MH49-0001', transactionType: 'DELIVERY', operatorId: adminUser?.id || null } });
+  // Create sample transactions
+  await issueCylinder({ customerCode: 'JGW01', cylinderNumber: 'OXY002', quantityCum: 7, billDate: new Date('2026-04-10') });
+  // Ensure OXY003 exists before issuing
+  if (!(await prisma.cylinder.findUnique({ where: { cylinderNumber: 'OXY003' } }))) {
+    await prisma.cylinder.create({ data: { cylinderNumber: 'OXY003', gasCode: 'OXY', ownerCode: 'COC', status: 'IN_STOCK', particular: '47L Oxygen', capacity: 47 } });
+  }
+  await issueCylinder({ customerCode: 'MED01', cylinderNumber: 'OXY003', quantityCum: 7, billDate: new Date('2026-04-12') });
+
+  // 8) Active holdings: ensure OXY002 is held by JGW01
+  const jgw = await prisma.customer.findUnique({ where: { code: 'JGW01' } });
+  const oxy2 = await prisma.cylinder.findUnique({ where: { cylinderNumber: 'OXY002' } });
+  if (jgw && oxy2) {
+    const existing = await prisma.cylinderHolding.findFirst({ where: { cylinderId: oxy2.id, customerId: jgw.id, status: 'HOLDING' } });
+    if (!existing) {
+      await prisma.cylinderHolding.create({ data: { cylinderId: oxy2.id, customerId: jgw.id, issuedAt: new Date('2026-04-10'), status: 'HOLDING' } });
+    }
   }
 
-  // Create an ECR (return) for a returned cylinder if a holding exists
-  const someHolding = await prisma.cylinderHolding.findFirst({ where: { status: 'HOLDING' }, include: { cylinder: true } });
-  if (someHolding) {
-    const ecrDate = new Date();
-    const ecrNumber = await generateEcrNumber(prisma, ecrDate);
+  // 9) ECR returns: MED01 returns OXY003 (issue 2026-03-20 -> return 2026-04-15)
+  const med = await prisma.customer.findUnique({ where: { code: 'MED01' } });
+  const oxy3 = await prisma.cylinder.findUnique({ where: { cylinderNumber: 'OXY003' } });
+  if (med && oxy3) {
+    // find holding if exists, otherwise create synthetic holding with issueDate 2026-03-20
+    let medHolding = await prisma.cylinderHolding.findFirst({ where: { cylinderId: oxy3.id, customerId: med.id } });
+    if (!medHolding) {
+      medHolding = await prisma.cylinderHolding.create({ data: { cylinderId: oxy3.id, customerId: med.id, issuedAt: new Date('2026-03-20'), status: 'HOLDING' } });
+    }
+
+    const returnDate = new Date('2026-04-15');
+    const holdDays = 26; // as provided in your sample
+    const rentAmount = 95; // as provided in your sample
+
+    await prisma.cylinderHolding.update({ where: { id: medHolding.id }, data: { returnedAt: returnDate, holdDays, rentAmount, status: 'RETURNED' } });
+
+    const ecrNumber = await generateEcrNumber(prisma, returnDate);
     await prisma.ecrRecord.create({ data: {
       ecrNumber,
-      ecrDate,
-      customerId: someHolding.customerId,
-      gasCode: someHolding.cylinder.gasCode,
-      cylinderOwner: someHolding.cylinder.ownerCode,
-      cylinderNumber: someHolding.cylinder.cylinderNumber,
-      issueNumber: someHolding.transactionId ? (await prisma.transaction.findUnique({ where: { id: someHolding.transactionId }, select: { billNumber: true } })).billNumber : null,
-      issueDate: someHolding.issuedAt,
-      holdDays: 2,
-      rentAmount: 0,
+      ecrDate: returnDate,
+      customerId: med.id,
+      gasCode: oxy3.gasCode,
+      cylinderOwner: oxy3.ownerCode,
+      cylinderNumber: oxy3.cylinderNumber,
+      issueNumber: null,
+      issueDate: medHolding.issuedAt,
+      holdDays,
+      rentAmount,
       challanNumber: null,
       challanDate: null,
       vehicleNumber: null,
       operatorId: adminUser?.id || null,
-      quantityCum: someHolding.cylinder.capacity || null,
+      quantityCum: 7,
     } });
-  }
 
-  // Sample Order
-  const anyCustomer = await prisma.customer.findFirst();
-  if (anyCustomer) {
-    await prisma.order.create({ data: { orderNumber: 'ORD-1001', orderDate: new Date(), customerId: anyCustomer.id, gasCode: 'OX', ownerCode: 'COC', quantityCum: 47, quantityCyl: 1, rate: 180, freightRate: 0, salesTaxRate: 12, status: 'ACTIVE', createdAt: new Date() } });
+    await prisma.cylinder.update({ where: { id: oxy3.id }, data: { status: 'IN_STOCK' } });
   }
-
-  // Sample Alerts
-  const cylForAlert = await prisma.cylinder.findFirst({ where: { status: 'IN_STOCK' } });
-  if (cylForAlert) {
-    await prisma.alert.create({ data: { type: 'LOW_STOCK', cylinderId: cylForAlert.id, message: `Low stock sample for ${cylForAlert.cylinderNumber}`, sentVia: 'SYSTEM' } });
-  }
-
 
   console.log('Seeding complete!');
 }

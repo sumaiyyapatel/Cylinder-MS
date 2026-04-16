@@ -17,6 +17,9 @@ const {
 const { postLedgerEntries } = require('../services/ledgerPostingService');
 const { updateCylinderStatus, assertNoActiveHolding } = require('../services/cylinderStatusService');
 const { createAuditLog } = require('../services/auditService');
+const { createHolding } = require('../services/cylinderHoldingService');
+const invoiceService = require('../services/invoiceService');
+const whatsappService = require('../services/whatsappService');
 const {
   parseRequiredInt,
   parseOptionalNonNegativeNumber,
@@ -270,15 +273,7 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
       });
 
       await updateCylinderStatus(tx, cylinder.id, 'WITH_CUSTOMER', { incrementFillCount: true });
-      const holding = await tx.cylinderHolding.create({
-        data: {
-          cylinderId: cylinder.id,
-          customerId: customerIdNum,
-          transactionId: txn.id,
-          issuedAt: effectiveBillDate,
-          status: 'HOLDING',
-        },
-      });
+      const holding = await createHolding(tx, { cylinderId: cylinder.id, customerId: customerIdNum, transactionId: txn.id, issuedAt: effectiveBillDate });
 
       await createAuditLog(tx, {
         action: 'ISSUE_CYLINDER',
@@ -388,6 +383,21 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
     warnings,
     bill: responseBill,
   });
+
+  // Fire-and-forget: generate PDF and send WhatsApp notification (if configured)
+  (async () => {
+    try {
+      const pdfPath = await invoiceService.generateInvoicePdf(createdBill.id);
+      // Public URL for the PDF endpoint
+      const pdfUrl = `${req.protocol}://${req.get('host')}/api/bills/${createdBill.id}/pdf`;
+      const sent = await whatsappService.sendBillNotification(createdBill.customerId, createdBill.billNumber, pdfUrl);
+      if (sent) {
+        await prisma.bill.update({ where: { id: createdBill.id }, data: { whatsappSent: true } });
+      }
+    } catch (err) {
+      console.error('Post-bill notification failed:', err.message || err);
+    }
+  })();
 }));
 
 router.patch('/:id/whatsapp-sent', authenticate, asyncHandler(async (req, res) => {

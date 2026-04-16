@@ -1,7 +1,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { authenticate } = require('../lib/auth');
-const { runReconciliation } = require('../services/reconciliationService');
+const { runReconciliation, validateHoldingRents, findOrphanedHoldings, auditBillToEcrMatching } = require('../services/reconciliationService');
 
 const router = express.Router();
 
@@ -788,6 +788,40 @@ router.get('/reconciliation', authenticate, async (req, res) => {
   try {
     const { customerId, gasCode, ownerCode } = req.query;
     const result = await runReconciliation(prisma, { customerId, gasCode, ownerCode });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Reconciliation: holding rents vs ECR rents
+router.get('/reconciliation/holding-rents', authenticate, async (req, res) => {
+  try {
+    const { customerId } = req.query;
+    const result = await validateHoldingRents(prisma, customerId ? parseInt(customerId, 10) : null);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Reconciliation: orphaned holdings older than threshold
+router.get('/reconciliation/orphaned-holdings', authenticate, async (req, res) => {
+  try {
+    const days = req.query.days ? parseInt(req.query.days, 10) : null;
+    const result = await findOrphanedHoldings(prisma, { daysThreshold: days });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Reconciliation: audit a bill's issues vs ECR returns
+router.get('/reconciliation/bill/:billId', authenticate, async (req, res) => {
+  try {
+    const billId = parseInt(req.params.billId, 10);
+    if (!Number.isFinite(billId)) return res.status(400).json({ error: 'Invalid bill id' });
+    const result = await auditBillToEcrMatching(prisma, billId);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
