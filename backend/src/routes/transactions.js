@@ -5,6 +5,7 @@ const asyncHandler = require('../middleware/asyncHandler');
 const { AppError } = require('../middleware/errorHandler');
 const {
   isHydroTestOverdue,
+  normalizeOwnerCode,
   round2,
   deriveNextHydroDueDate,
   getGstMode,
@@ -31,22 +32,26 @@ const {
 
 const router = express.Router();
 
-async function buildBillResponse(tx, bill) {
-  const salesBookEntry = await tx.salesBook.findFirst({
-    where: { billNumber: bill.billNumber },
-    select: { subtotal: true, gstAmount: true, totalAmount: true, gstCode: true, rate: true },
-  });
+async function buildBillResponse(tx, bill, { salesBookEntry: salesBookEntryIn, companyGstin: companyGstinIn } = {}) {
+  const salesBookEntry = salesBookEntryIn === undefined
+    ? await tx.salesBook.findFirst({
+        where: { billNumber: bill.billNumber },
+        select: { billNumber: true, subtotal: true, gstAmount: true, totalAmount: true, gstCode: true, rate: true },
+      })
+    : salesBookEntryIn;
 
-  const companyGstinSetting = await tx.companySetting.findUnique({
-    where: { key: 'company_gstin' },
-    select: { value: true },
-  });
+  const companyGstin = companyGstinIn === undefined
+    ? (await tx.companySetting.findUnique({
+        where: { key: 'company_gstin' },
+        select: { value: true },
+      }))?.value
+    : companyGstinIn;
 
   const gstBreakup = salesBookEntry
     ? calculateGstBreakup(
         parseFloat(salesBookEntry.subtotal || 0),
         salesBookEntry.gstCode ? parseInt(salesBookEntry.gstCode.replace(/^[IS]/, ''), 10) : 0,
-        bill.gstMode || getGstMode(companyGstinSetting?.value, bill.customer?.gstin)
+        bill.gstMode || getGstMode(companyGstin, bill.customer?.gstin)
       )
     : null;
 
@@ -54,31 +59,65 @@ async function buildBillResponse(tx, bill) {
     ...bill,
     salesBook: salesBookEntry,
     gstBreakup,
-    companyGstin: companyGstinSetting?.value,
+    companyGstin,
     hsnCode: bill.items?.[0]?.cylinder?.gasType?.hsnCode || null,
   };
 }
 
 router.get('/', authenticate, asyncHandler(async (req, res) => {
   const { customerId, gasCode, dateFrom, dateTo, page = 1, limit = 50 } = req.query;
+
   const where = {};
-  if (customerId) where.customerId = parseInt(customerId, 10);
-  if (gasCode) where.gasCode = gasCode;
-  if (dateFrom || dateTo) {
-    where.billDate = {};
-    if (dateFrom) where.billDate.gte = new Date(dateFrom);
-    if (dateTo) where.billDate.lte = new Date(`${dateTo}T23:59:59Z`);
+
+  if (customerId && !isNaN(parseInt(customerId, 10))) {
+    where.customerId = parseInt(customerId, 10);
   }
 
-  const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+  if (gasCode) where.gasCode = gasCode;
+
+  if (dateFrom || dateTo) {
+    where.billDate = {};
+
+    if (dateFrom) {
+      const d = new Date(dateFrom);
+      if (!isNaN(d)) where.billDate.gte = d;
+    }
+
+    if (dateTo) {
+      const d = new Date(dateTo);
+      if (!isNaN(d)) {
+        where.billDate.lte = new Date(`${dateTo}T23:59:59Z`);
+      }
+    }
+  }
+
+  // ✅ FIX: safe parsing
+  const parsedPage = parseInt(page, 10);
+  const parsedLimit = parseInt(limit, 10);
+
+  const safePage = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+  const safeLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 50;
+
+  const skip = (safePage - 1) * safeLimit;
+
   const [bills, total] = await Promise.all([
     prisma.bill.findMany({
       where,
       skip,
-      take: parseInt(limit, 10),
+      take: safeLimit,
       orderBy: [{ billDate: 'desc' }, { id: 'desc' }],
       include: {
-        customer: { select: { id: true, code: true, name: true, phone: true, gstin: true, address1: true, city: true } },
+        customer: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            phone: true,
+            gstin: true,
+            address1: true,
+            city: true
+          }
+        },
         items: {
           orderBy: [{ id: 'asc' }],
           include: {
@@ -86,23 +125,63 @@ router.get('/', authenticate, asyncHandler(async (req, res) => {
             cylinder: {
               select: {
                 gasCode: true,
-                gasType: { select: { hsnCode: true, gstRate: true } },
-              },
-            },
-          },
-        },
+                gasType: {
+                  select: {
+                    hsnCode: true,
+                    gstRate: true
+                  }
+                }
+              }
+            }
+          }
+        }
       },
     }),
     prisma.bill.count({ where }),
   ]);
 
-  const enrichedBills = await Promise.all(bills.map((bill) => buildBillResponse(prisma, bill)));
+  const billNumbers = bills.map((b) => b.billNumber).filter(Boolean);
+
+  const [salesBookEntries, companyGstinSetting] = await Promise.all([
+    billNumbers.length
+      ? prisma.salesBook.findMany({
+          where: { billNumber: { in: billNumbers } },
+          select: {
+            billNumber: true,
+            subtotal: true,
+            gstAmount: true,
+            totalAmount: true,
+            gstCode: true,
+            rate: true
+          },
+        })
+      : Promise.resolve([]),
+    prisma.companySetting.findUnique({
+      where: { key: 'company_gstin' },
+      select: { value: true }
+    }),
+  ]);
+
+  const salesBookByBillNumber = new Map(
+    salesBookEntries.map((e) => [e.billNumber, e])
+  );
+
+  const companyGstin = companyGstinSetting?.value ?? null;
+
+  const enrichedBills = await Promise.all(
+    bills.map((bill) =>
+      buildBillResponse(prisma, bill, {
+        salesBookEntry: salesBookByBillNumber.get(bill.billNumber) ?? null,
+        companyGstin,
+      })
+    )
+  );
 
   res.json({
     data: enrichedBills,
     total,
-    page: parseInt(page, 10),
-    totalPages: Math.ceil(total / parseInt(limit, 10)),
+    page: safePage,
+    totalPages: Math.ceil(total / safeLimit),
   });
 }));
 
@@ -142,6 +221,7 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
       select: {
         id: true,
         cylinderNumber: true,
+        ownerCode: true,
         status: true,
         hydroTestDate: true,
         nextTestDue: true,
@@ -159,7 +239,7 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
     const holdingRecords = await tx.cylinderHolding.findMany({
       where: {
         cylinderId: { in: dbCylinders.map((c) => c.id) },
-        status: 'HOLDING',
+        status: { in: ['HOLDING', 'BILLED'] },
       },
       select: { cylinderId: true },
     });
@@ -167,15 +247,20 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
 
     const blockedWithCustomer = [];
     const blockedNotInStock = [];
+    const blockedOwnerMismatch = [];
     const blockedHydroOverdue = [];
     const blockedMissingHydro = [];
 
+    const expectedOwner = normalizeOwnerCode(cylinderOwner || 'COC');
     for (const number of cylinderNumbers) {
       const cylinder = cylinderByNumber.get(number);
       if (!cylinder) continue;
 
       if (holdingCylinderIds.has(cylinder.id)) blockedWithCustomer.push(number);
       if (cylinder.status !== 'IN_STOCK') blockedNotInStock.push(number);
+      if (normalizeOwnerCode(cylinder.ownerCode) !== expectedOwner) {
+        blockedOwnerMismatch.push({ cylinderNumber: number, actualOwner: cylinder.ownerCode });
+      }
 
       const derivedDue = deriveNextHydroDueDate(cylinder);
       if (!derivedDue) {
@@ -200,6 +285,10 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
     }
     if (blockedNotInStock.length) {
       throw new AppError(400, `Cylinder(s) must be IN_STOCK before issue: ${[...new Set(blockedNotInStock)].join(', ')}`);
+    }
+    if (blockedOwnerMismatch.length) {
+      const first = blockedOwnerMismatch[0];
+      throw new AppError(409, `Cylinder ${first.cylinderNumber} is owned by ${first.actualOwner}, not ${cylinderOwner || 'COC'}`);
     }
 
     const warnings = [];
@@ -273,7 +362,7 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
       });
 
       await updateCylinderStatus(tx, cylinder.id, 'WITH_CUSTOMER', { incrementFillCount: true });
-      const holding = await createHolding(tx, { cylinderId: cylinder.id, customerId: customerIdNum, transactionId: txn.id, issuedAt: effectiveBillDate });
+      const holding = await createHolding(tx, { cylinderId: cylinder.id, customerId: customerIdNum, transactionId: txn.id, issuedAt: effectiveBillDate, status: 'BILLED' });
 
       await createAuditLog(tx, {
         action: 'ISSUE_CYLINDER',

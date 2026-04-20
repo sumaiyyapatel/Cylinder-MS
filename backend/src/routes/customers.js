@@ -36,7 +36,7 @@ router.get('/', authenticate, asyncHandler(async (req, res) => {
 router.get('/:id', authenticate, asyncHandler(async (req, res) => {
   const customer = await prisma.customer.findUnique({
     where: { id: parseInt(req.params.id, 10) },
-    include: { area: true, holdings: { where: { status: 'HOLDING' }, include: { cylinder: true } } },
+    include: { area: true, holdings: { where: { status: { in: ['HOLDING', 'BILLED'] } }, include: { cylinder: true } } },
   });
   if (!customer || !customer.isActive) throw new AppError(404, 'Customer not found');
   res.json(customer);

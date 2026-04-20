@@ -19,14 +19,14 @@ function startOverdueCylinderScheduler() {
         await prisma.$transaction([
           prisma.cylinderHolding.updateMany({
             where: {
-              status: "HOLDING",
+              status: { in: ["HOLDING", "BILLED"] },
               issuedAt: { lt: cutoffDate },
             },
             data: { isOverdue: true },
           }),
           prisma.cylinderHolding.updateMany({
             where: {
-              status: "HOLDING",
+              status: { in: ["HOLDING", "BILLED"] },
               issuedAt: { gte: cutoffDate },
             },
             data: { isOverdue: false },
@@ -36,7 +36,7 @@ function startOverdueCylinderScheduler() {
         // Now create alerts for newly overdue holdings
         const newlyOverdueHoldings = await prisma.cylinderHolding.findMany({
           where: {
-            status: "HOLDING",
+            status: { in: ["HOLDING", "BILLED"] },
             isOverdue: true,
             alertSentAt: null, // Only create alerts for holdings that don't have alerts yet
           },

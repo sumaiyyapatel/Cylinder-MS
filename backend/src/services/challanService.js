@@ -58,7 +58,7 @@ async function createChallan(tx, opts = {}) {
     }
 
     const holdingRecords = await tx.cylinderHolding.findMany({
-      where: { cylinderId: { in: dbCylinders.map((c) => c.id) }, status: 'HOLDING' },
+      where: { cylinderId: { in: dbCylinders.map((c) => c.id) }, status: { in: ['HOLDING', 'BILLED'] } },
       select: { cylinderId: true },
     });
     const holdingCylinderIds = new Set(holdingRecords.map((h) => h.cylinderId));

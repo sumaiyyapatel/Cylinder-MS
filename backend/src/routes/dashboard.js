@@ -23,7 +23,7 @@ router.get('/', authenticate, async (req, res) => {
 
     // Pending ECRs (cylinders with customer)
     const pendingEcrs = await prisma.cylinderHolding.count({
-      where: { status: 'HOLDING' },
+      where: { status: { in: ['HOLDING', 'BILLED'] } },
     });
 
     // Overdue cylinders (held > 30 days)
@@ -33,7 +33,7 @@ router.get('/', authenticate, async (req, res) => {
     overdueDate.setDate(overdueDate.getDate() - thresholdDays);
 
     const overdueCylinders = await prisma.cylinderHolding.count({
-      where: { status: 'HOLDING', issuedAt: { lt: overdueDate } },
+      where: { status: { in: ['HOLDING', 'BILLED'] }, issuedAt: { lt: overdueDate } },
     });
 
     // Cash collected today (credit amounts from ledger)
@@ -85,7 +85,7 @@ router.get('/', authenticate, async (req, res) => {
     // Top 5 customers by cylinders held
     const topCustomers = await prisma.cylinderHolding.groupBy({
       by: ['customerId'],
-      where: { status: 'HOLDING' },
+      where: { status: { in: ['HOLDING', 'BILLED'] } },
       _count: true,
       orderBy: { _count: { customerId: 'desc' } },
       take: 5,

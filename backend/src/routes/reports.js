@@ -18,7 +18,7 @@ router.get('/holding-statement', authenticate, async (req, res) => {
       ? parsedThreshold
       : 30;
 
-    const where = { status: 'HOLDING' };
+    const where = { status: { in: ['HOLDING', 'BILLED'] } };
     if (customerId) where.customerId = parseInt(customerId);
     if (asOfDate) where.issuedAt = { lte: new Date(asOfDate + 'T23:59:59Z') };
 
@@ -439,7 +439,7 @@ router.get('/sales-summary', authenticate, async (req, res) => {
 router.get('/holding-all-party', authenticate, async (req, res) => {
   try {
     const holdings = await prisma.cylinderHolding.findMany({
-      where: { status: 'HOLDING' },
+      where: { status: { in: ['HOLDING', 'BILLED'] } },
       include: {
         customer: { select: { code: true, name: true } },
         cylinder: { select: { gasCode: true } },
@@ -479,7 +479,7 @@ router.get('/holding-party-status', authenticate, async (req, res) => {
     });
     const overdueThresholdDays = Number.isFinite(parseInt(thresholdSetting?.value, 10)) ? parseInt(thresholdSetting.value, 10) : 30;
 
-    const where = { status: 'HOLDING' };
+    const where = { status: { in: ['HOLDING', 'BILLED'] } };
     if (customerId) where.customerId = parseInt(customerId);
 
     const holdings = await prisma.cylinderHolding.findMany({

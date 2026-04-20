@@ -49,9 +49,9 @@ async function runReconciliation(db, options = {}) {
     }
 
     groupMap[key].issued++;
-    if (h.status === 'RETURNED' || h.status === 'BILLED') {
+    if (h.status === 'RETURNED') {
       groupMap[key].returned++;
-    } else if (h.status === 'HOLDING') {
+    } else if (h.status === 'HOLDING' || h.status === 'BILLED') {
       groupMap[key].activeHoldings++;
       groupMap[key].cylinders.push(h.cylinder?.cylinderNumber || '-');
     }
@@ -82,7 +82,7 @@ async function runReconciliation(db, options = {}) {
   }
 
   // 4. Find missing ECR records (holdings RETURNED but no ECR)
-  const returnedHoldings = holdings.filter((h) => h.status === 'RETURNED' || h.status === 'BILLED');
+  const returnedHoldings = holdings.filter((h) => h.status === 'RETURNED');
   const cylinderNumbers = [...new Set(returnedHoldings.map((h) => h.cylinder?.cylinderNumber).filter(Boolean))];
   const ecrRecords = cylinderNumbers.length
     ? await db.ecrRecord.findMany({
@@ -103,7 +103,7 @@ async function runReconciliation(db, options = {}) {
     }));
 
   // 5. Find duplicate issues (cylinder issued more than once without return)
-  const activeCylinderHoldings = holdings.filter((h) => h.status === 'HOLDING');
+  const activeCylinderHoldings = holdings.filter((h) => h.status === 'HOLDING' || h.status === 'BILLED');
   const cylinderCountMap = {};
   for (const h of activeCylinderHoldings) {
     const cylNum = h.cylinder?.cylinderNumber;
@@ -140,7 +140,7 @@ async function runReconciliation(db, options = {}) {
 }
 
 async function validateHoldingRents(db, customerId = null) {
-  const where = { status: { in: ['RETURNED', 'BILLED'] } };
+  const where = { status: 'RETURNED' };
   if (customerId) where.customerId = parseInt(customerId, 10);
 
   const holdings = await db.cylinderHolding.findMany({
@@ -218,7 +218,7 @@ async function findOrphanedHoldings(db, options = {}) {
   cutoff.setDate(cutoff.getDate() - threshold);
 
   const holdings = await db.cylinderHolding.findMany({
-    where: { status: 'HOLDING', issuedAt: { lt: cutoff } },
+    where: { status: { in: ['HOLDING', 'BILLED'] }, issuedAt: { lt: cutoff } },
     include: { cylinder: { select: { cylinderNumber: true, gasCode: true, ownerCode: true } }, customer: { select: { id: true, code: true, name: true } } },
     orderBy: { issuedAt: 'asc' },
   });
@@ -264,4 +264,3 @@ async function auditBillToEcrMatching(db, billId) {
 }
 
 module.exports = { runReconciliation, validateHoldingRents, findOrphanedHoldings, auditBillToEcrMatching };
-

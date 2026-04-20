@@ -15,7 +15,7 @@ async function updateCylinderStatus(tx, cylinderId, status, options = {}) {
 
 async function assertNoActiveHolding(tx, cylinderId, cylinderNumber) {
   const activeHolding = await tx.cylinderHolding.findFirst({
-    where: { cylinderId, status: "HOLDING" },
+    where: { cylinderId, status: { in: ["HOLDING", "BILLED"] } },
     select: { id: true },
   });
 

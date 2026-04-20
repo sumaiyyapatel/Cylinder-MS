@@ -133,7 +133,7 @@ router.post('/:id/partial-return', authenticate, authorize('ADMIN', 'MANAGER', '
       if (!cylinder || !cylinder.isActive) throw new AppError(404, `Cylinder not found: ${cylNumber}`);
 
       const holding = await tx.cylinderHolding.findFirst({
-        where: { cylinderId: cylinder.id, customerId: challan.customerId, status: 'HOLDING' },
+        where: { cylinderId: cylinder.id, customerId: challan.customerId, status: { in: ['HOLDING', 'BILLED'] } },
         orderBy: { issuedAt: 'desc' },
       });
       if (!holding) throw new AppError(400, `No active holding found for cylinder ${cylNumber} under this challan/customer`);
@@ -198,7 +198,7 @@ router.post('/:id/partial-return', authenticate, authorize('ADMIN', 'MANAGER', '
     const end = new Date(start);
     end.setDate(end.getDate() + 1);
 
-    const remainingHoldings = await tx.cylinderHolding.count({ where: { customerId: challan.customerId, status: 'HOLDING', issuedAt: { gte: start, lt: end } } });
+    const remainingHoldings = await tx.cylinderHolding.count({ where: { customerId: challan.customerId, status: { in: ['HOLDING', 'BILLED'] }, issuedAt: { gte: start, lt: end } } });
 
     // Update challan cylindersCount to remainingHoldings (best-effort)
     await tx.challan.update({ where: { id: challanId }, data: { cylindersCount: remainingHoldings } });

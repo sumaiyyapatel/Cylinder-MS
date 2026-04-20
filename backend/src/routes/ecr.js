@@ -76,7 +76,7 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
 
     // Ensure a matching holding exists
     const holding = await tx.cylinderHolding.findFirst({
-      where: { cylinderId: cylinder.id, customerId: customerIdNum, status: 'HOLDING' },
+      where: { cylinderId: cylinder.id, customerId: customerIdNum, status: { in: ['HOLDING', 'BILLED'] } },
       include: { transaction: true },
       orderBy: { issuedAt: 'desc' },
     });
@@ -114,7 +114,7 @@ router.get('/cylinder-info/:cylinderNumber', authenticate, asyncHandler(async (r
   if (!cylinder) throw new AppError(404, 'Cylinder not found');
 
   const holding = await prisma.cylinderHolding.findFirst({
-    where: { cylinderId: cylinder.id, status: 'HOLDING' },
+    where: { cylinderId: cylinder.id, status: { in: ['HOLDING', 'BILLED'] } },
     include: { customer: true, transaction: true },
     orderBy: { issuedAt: 'desc' },
   });
