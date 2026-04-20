@@ -22,16 +22,17 @@ async function postLedgerEntries(tx, voucherDate, entries = [], operatorId = nul
   // Validate balance (Dr === Cr) unless explicitly skipped
   if (!options.skipBalanceCheck) {
     const balanceCheck = validateBalance(entries);
-    if (!balanceCheck.valid) {
-      console.warn(
-        `[LedgerPosting] Warning: Unbalanced voucher ${voucherNumber} — ` +
-        `Dr: ${balanceCheck.totalDebit}, Cr: ${balanceCheck.totalCredit}, ` +
-        `Diff: ${balanceCheck.difference}`
-      );
-      // Log warning but don't block — legacy data may have imbalances
-    }
+   if (!balanceCheck.valid) {
+  throw new Error(
+    `[LedgerPosting] Unbalanced voucher ${voucherNumber} — ` +
+    `Dr: ${balanceCheck.totalDebit}, Cr: ${balanceCheck.totalCredit}, ` +
+    `Diff: ${balanceCheck.difference}`
+  );
+}
   }
-
+if (!entries.every(e => e.debitAmount || e.creditAmount)) {
+  throw new Error("Invalid ledger entry: both debit and credit are empty");
+}
   const created = [];
   for (const entry of entries) {
     const createdEntry = await tx.ledgerEntry.create({
