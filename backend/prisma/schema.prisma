@@ -15,6 +15,20 @@ enum Role {
   VIEWER
 }
 
+enum AccountGroup {
+  SUNDRY_DEBTORS
+  SUNDRY_CREDITORS
+  SALES
+  PURCHASES
+  DUTIES_AND_TAXES
+  BANK
+  CASH
+  INDIRECT_INCOME
+  INDIRECT_EXPENSE
+  DIRECT_INCOME
+  DIRECT_EXPENSE
+}
+
 enum CylinderStatus {
   IN_STOCK
   WITH_CUSTOMER
@@ -52,23 +66,23 @@ enum AlertChannel {
 }
 
 model User {
-  id            Int       @id @default(autoincrement())
-  username      String    @unique
-  fullName      String    @map("full_name")
-  passwordHash  String    @map("password_hash")
-  role          Role      @default(VIEWER)
-  isActive      Boolean   @default(true) @map("is_active")
-  lastLogin     DateTime? @map("last_login")
-  failedAttempts Int      @default(0) @map("failed_attempts")
-  lockedUntil   DateTime? @map("locked_until")
-  createdAt     DateTime  @default(now()) @map("created_at")
+  id             Int       @id @default(autoincrement())
+  username       String    @unique
+  fullName       String    @map("full_name")
+  passwordHash   String    @map("password_hash")
+  role           Role      @default(VIEWER)
+  isActive       Boolean   @default(true) @map("is_active")
+  lastLogin      DateTime? @map("last_login")
+  failedAttempts Int       @default(0) @map("failed_attempts")
+  lockedUntil    DateTime? @map("locked_until")
+  createdAt      DateTime  @default(now()) @map("created_at")
 
   @@map("users")
 }
 
 model Customer {
-  id            Int       @id @default(autoincrement())
-  code          String    @unique
+  id            Int      @id @default(autoincrement())
+  code          String   @unique
   title         String?
   name          String
   address1      String?
@@ -79,70 +93,70 @@ model Customer {
   whatsapp      String?
   email         String?
   gstin         String?
-  contactPerson String?   @map("contact_person")
-  areaCode      String?   @map("area_code")
-  creditLimit   Decimal?  @default(0) @map("credit_limit")
-  isActive      Boolean   @default(true) @map("is_active")
-  createdAt     DateTime  @default(now()) @map("created_at")
+  contactPerson String?  @map("contact_person")
+  areaCode      String?  @map("area_code")
+  creditLimit   Decimal? @default(0) @map("credit_limit")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
 
-  area          Area?     @relation(fields: [areaCode], references: [areaCode])
-  bills         Bill[]
-  transactions  Transaction[]
-  orders        Order[]
-  ecrRecords    EcrRecord[]
-  challans      Challan[]
-  holdings      CylinderHolding[]
-  alerts        Alert[]   @relation("CustomerAlerts")
-  ledgerEntries LedgerEntry[]
-  salesBook     SalesBook[]
+  area         Area?             @relation(fields: [areaCode], references: [areaCode])
+  bills        Bill[]
+  transactions Transaction[]
+  orders       Order[]
+  ecrRecords   EcrRecord[]
+  challans     Challan[]
+  holdings     CylinderHolding[]
+  alerts       Alert[]           @relation("CustomerAlerts")
+  salesBook    SalesBook[]
+  account      Account?
 
   @@map("customers")
 }
 
 model Cylinder {
-  id              Int             @id @default(autoincrement())
-  ownerCode       String          @map("owner_code")
-  cylinderNumber  String          @unique @map("cylinder_number")
+  id              Int            @id @default(autoincrement())
+  ownerCode       String         @map("owner_code")
+  cylinderNumber  String         @unique @map("cylinder_number")
   particular      String?
   capacity        Decimal?
-  gasCode         String?         @map("gas_code")
-  status          CylinderStatus  @default(IN_STOCK)
-  isActive        Boolean         @default(true) @map("is_active")
-  manufactureDate DateTime?       @map("manufacture_date")
-  hydroTestDate   DateTime?       @map("hydro_test_date")
-  nextTestDue     DateTime?       @map("next_test_due")
-  fillCount       Int             @default(0) @map("fill_count")
-  createdAt       DateTime        @default(now()) @map("created_at")
+  gasCode         String?        @map("gas_code")
+  status          CylinderStatus @default(IN_STOCK)
+  isActive        Boolean        @default(true) @map("is_active")
+  manufactureDate DateTime?      @map("manufacture_date")
+  hydroTestDate   DateTime?      @map("hydro_test_date")
+  nextTestDue     DateTime?      @map("next_test_due")
+  fillCount       Int            @default(0) @map("fill_count")
+  createdAt       DateTime       @default(now()) @map("created_at")
 
-  gasType         GasType?        @relation(fields: [gasCode], references: [gasCode])
-  holdings        CylinderHolding[]
-  transactions    Transaction[]
-  alerts          Alert[]         @relation("CylinderAlerts")
+  gasType      GasType?          @relation(fields: [gasCode], references: [gasCode])
+  holdings     CylinderHolding[]
+  transactions Transaction[]
+  alerts       Alert[]           @relation("CylinderAlerts")
 
   @@map("cylinders")
 }
 
 model GasType {
-  id           Int       @id @default(autoincrement())
-  gasCode      String    @unique @map("gas_code")
+  id           Int      @id @default(autoincrement())
+  gasCode      String   @unique @map("gas_code")
   name         String
-  chemicalName String?   @map("chemical_name")
+  chemicalName String?  @map("chemical_name")
   formula      String?
-  hsnCode      String?   @map("hsn_code")
-  gstRate      Decimal?  @map("gst_rate")
-  itemCode     String?   @map("item_code")
-  isActive     Boolean   @default(true) @map("is_active")
+  hsnCode      String?  @map("hsn_code")
+  gstRate      Decimal? @map("gst_rate")
+  itemCode     String?  @map("item_code")
+  isActive     Boolean  @default(true) @map("is_active")
 
-  cylinders    Cylinder[]
-  rateList     RateList[]
+  cylinders Cylinder[]
+  rateList  RateList[]
 
   @@map("gas_types")
 }
 
 model Area {
-  id       Int       @id @default(autoincrement())
-  areaCode String    @unique @map("area_code")
-  areaName String    @map("area_name")
+  id       Int    @id @default(autoincrement())
+  areaCode String @unique @map("area_code")
+  areaName String @map("area_name")
 
   customers Customer[]
 
@@ -167,10 +181,9 @@ model Order {
   validTo      DateTime?   @map("valid_to")
   createdAt    DateTime    @default(now()) @map("created_at")
 
-  customer     Customer    @relation(fields: [customerId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
 
   @@index([status])
-
   @@map("orders")
 }
 
@@ -194,68 +207,67 @@ model RateList {
   effectiveFrom   DateTime? @map("effective_from")
   effectiveTo     DateTime? @map("effective_to")
 
-  gasType         GasType   @relation(fields: [gasCode], references: [gasCode])
+  gasType GasType @relation(fields: [gasCode], references: [gasCode])
 
   @@map("rate_list")
 }
 
 model Transaction {
-  id              Int       @id @default(autoincrement())
-  billId          Int?      @map("bill_id")
-  billNumber      String    @map("bill_number")
-  billDate        DateTime  @map("bill_date")
-  customerId      Int       @map("customer_id")
-  gasCode         String?   @map("gas_code")
-  cylinderOwner   String?   @map("cylinder_owner")
-  cylinderNumber  String?   @map("cylinder_number")
-  quantityCum     Decimal?  @map("quantity_cum")
-  orderNumber     String?   @map("order_number")
-  transactionCode String?   @map("transaction_code")
-  reasonCode      String?   @map("reason_code")
-  fullOrEmpty     String?   @map("full_or_empty")
-  rentAmount      Decimal?  @map("rent_amount")
-  operatorId      Int?      @map("operator_id")
-  whatsappSent    Boolean   @default(false) @map("whatsapp_sent")
-  pdfPath         String?   @map("pdf_path")
-  createdAt       DateTime  @default(now()) @map("created_at")
+  id              Int      @id @default(autoincrement())
+  billId          Int?     @map("bill_id")
+  billNumber      String   @map("bill_number")
+  billDate        DateTime @map("bill_date")
+  customerId      Int      @map("customer_id")
+  gasCode         String?  @map("gas_code")
+  cylinderOwner   String?  @map("cylinder_owner")
+  cylinderNumber  String?  @map("cylinder_number")
+  quantityCum     Decimal? @map("quantity_cum")
+  orderNumber     String?  @map("order_number")
+  transactionCode String?  @map("transaction_code")
+  reasonCode      String?  @map("reason_code")
+  fullOrEmpty     String?  @map("full_or_empty")
+  rentAmount      Decimal? @map("rent_amount")
+  operatorId      Int?     @map("operator_id")
+  whatsappSent    Boolean  @default(false) @map("whatsapp_sent")
+  pdfPath         String?  @map("pdf_path")
+  createdAt       DateTime @default(now()) @map("created_at")
 
-  bill            Bill?     @relation(fields: [billId], references: [id])
-  customer        Customer  @relation(fields: [customerId], references: [id])
-  cylinder        Cylinder? @relation(fields: [cylinderNumber], references: [cylinderNumber])
-  holdings        CylinderHolding[]
+  bill     Bill?             @relation(fields: [billId], references: [id])
+  customer Customer          @relation(fields: [customerId], references: [id])
+  cylinder Cylinder?         @relation(fields: [cylinderNumber], references: [cylinderNumber])
+  holdings CylinderHolding[]
 
   @@index([billId])
   @@index([customerId, billDate])
   @@index([billNumber])
-
   @@map("transactions")
 }
 
 model Bill {
-  id              Int       @id @default(autoincrement())
-  billNumber      String    @unique @map("bill_number")
-  billDate        DateTime  @map("bill_date")
-  customerId      Int       @map("customer_id")
-  gasCode         String?   @map("gas_code")
-  cylinderOwner   String?   @map("cylinder_owner")
-  orderNumber     String?   @map("order_number")
-  transactionCode String?   @map("transaction_code")
-  totalCylinders  Int       @default(0) @map("total_cylinders")
-  totalQuantity   Decimal?  @map("total_quantity")
-  unitRate        Decimal?  @map("unit_rate")
-  gstRate         Decimal?  @map("gst_rate")
-  gstMode         String?   @map("gst_mode")
-  taxableAmount   Decimal?  @map("taxable_amount")
-  gstAmount       Decimal?  @map("gst_amount")
-  totalAmount     Decimal?  @map("total_amount")
-  whatsappSent    Boolean   @default(false) @map("whatsapp_sent")
-  pdfPath         String?   @map("pdf_path")
-  operatorId      Int?      @map("operator_id")
-  createdAt       DateTime  @default(now()) @map("created_at")
+  id              Int      @id @default(autoincrement())
+  billNumber      String   @unique @map("bill_number")
+  billDate        DateTime @map("bill_date")
+  customerId      Int      @map("customer_id")
+  gasCode         String?  @map("gas_code")
+  cylinderOwner   String?  @map("cylinder_owner")
+  orderNumber     String?  @map("order_number")
+  transactionCode String?  @map("transaction_code")
+  totalCylinders  Int      @default(0) @map("total_cylinders")
+  totalQuantity   Decimal? @map("total_quantity")
+  unitRate        Decimal? @map("unit_rate")
+  gstRate         Decimal? @map("gst_rate")
+  gstMode         String?  @map("gst_mode")
+  taxableAmount   Decimal? @map("taxable_amount")
+  gstAmount       Decimal? @map("gst_amount")
+  totalAmount     Decimal? @map("total_amount")
+  whatsappSent    Boolean  @default(false) @map("whatsapp_sent")
+  pdfPath         String?  @map("pdf_path")
+  operatorId      Int?     @map("operator_id")
+  createdAt       DateTime @default(now()) @map("created_at")
 
-  customer        Customer  @relation(fields: [customerId], references: [id])
-  items           Transaction[]
-  challans        Challan[]
+  customer Customer      @relation(fields: [customerId], references: [id])
+  items    Transaction[]
+  challans Challan[]
 
   @@index([customerId, billDate])
   @@index([billDate])
@@ -263,75 +275,73 @@ model Bill {
 }
 
 model EcrRecord {
-  id              Int       @id @default(autoincrement())
-  ecrNumber       String    @unique @map("ecr_number")
-  ecrDate         DateTime  @map("ecr_date")
-  customerId      Int       @map("customer_id")
-  gasCode         String?   @map("gas_code")
-  cylinderOwner   String?   @map("cylinder_owner")
-  cylinderNumber  String?   @map("cylinder_number")
-  issueNumber     String?   @map("issue_number")
-  issueDate       DateTime? @map("issue_date")
-  holdDays        Int?      @map("hold_days")
-  rentAmount      Decimal?  @map("rent_amount")
-  challanNumber   String?   @map("challan_number")
-  challanDate     DateTime? @map("challan_date")
-  vehicleNumber   String?   @map("vehicle_number")
-  operatorId      Int?      @map("operator_id")
-  quantityCum     Decimal?  @map("quantity_cum")
-  createdAt       DateTime  @default(now()) @map("created_at")
+  id             Int       @id @default(autoincrement())
+  ecrNumber      String    @unique @map("ecr_number")
+  ecrDate        DateTime  @map("ecr_date")
+  customerId     Int       @map("customer_id")
+  gasCode        String?   @map("gas_code")
+  cylinderOwner  String?   @map("cylinder_owner")
+  cylinderNumber String?   @map("cylinder_number")
+  issueNumber    String?   @map("issue_number")
+  issueDate      DateTime? @map("issue_date")
+  holdDays       Int?      @map("hold_days")
+  rentAmount     Decimal?  @map("rent_amount")
+  challanNumber  String?   @map("challan_number")
+  challanDate    DateTime? @map("challan_date")
+  vehicleNumber  String?   @map("vehicle_number")
+  operatorId     Int?      @map("operator_id")
+  quantityCum    Decimal?  @map("quantity_cum")
+  createdAt      DateTime  @default(now()) @map("created_at")
 
-  customer        Customer  @relation(fields: [customerId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
 
   @@map("ecr_records")
 }
 
 model CylinderHolding {
-  id              Int            @id @default(autoincrement())
-  cylinderId      Int            @map("cylinder_id")
-  customerId      Int            @map("customer_id")
-  transactionId   Int?           @map("transaction_id")
-  issuedAt        DateTime       @map("issued_at")
-  returnedAt      DateTime?      @map("returned_at")
-  holdDays        Int?           @map("hold_days")
-  rentAmount      Decimal?       @map("rent_amount")
-  isOverdue       Boolean        @default(false) @map("is_overdue")
-  alertSentAt     DateTime?      @map("alert_sent_at")
-  status          HoldingStatus  @default(HOLDING)
+  id            Int           @id @default(autoincrement())
+  cylinderId    Int           @map("cylinder_id")
+  customerId    Int           @map("customer_id")
+  transactionId Int?          @map("transaction_id")
+  issuedAt      DateTime      @map("issued_at")
+  returnedAt    DateTime?     @map("returned_at")
+  holdDays      Int?          @map("hold_days")
+  rentAmount    Decimal?      @map("rent_amount")
+  isOverdue     Boolean       @default(false) @map("is_overdue")
+  alertSentAt   DateTime?     @map("alert_sent_at")
+  status        HoldingStatus @default(HOLDING)
 
-  cylinder        Cylinder       @relation(fields: [cylinderId], references: [id])
-  customer        Customer       @relation(fields: [customerId], references: [id])
-  transaction     Transaction?   @relation(fields: [transactionId], references: [id])
+  cylinder    Cylinder     @relation(fields: [cylinderId], references: [id])
+  customer    Customer     @relation(fields: [customerId], references: [id])
+  transaction Transaction? @relation(fields: [transactionId], references: [id])
 
   @@index([status, issuedAt])
   @@index([customerId, status])
-
   @@map("cylinder_holdings")
 }
 
 model Challan {
-  id              Int       @id @default(autoincrement())
-  challanNumber   String    @unique @map("challan_number")
-  challanDate     DateTime  @map("challan_date")
-  customerId      Int       @map("customer_id")
-  gasCode         String?   @map("gas_code")
-  cylinderOwner   String?   @map("cylinder_owner")
-  cylindersCount  Int?      @map("cylinders_count")
-  quantityCum     Decimal?  @map("quantity_cum")
-  vehicleNumber   String?   @map("vehicle_number")
-  transactionType String?   @map("transaction_type")
-  status          String    @default("OPEN")
-  linkedBillId    Int?      @map("linked_bill_id")
-  operatorId      Int?      @map("operator_id")
-  createdAt       DateTime  @default(now()) @map("created_at")
+  id              Int      @id @default(autoincrement())
+  challanNumber   String   @unique @map("challan_number")
+  challanDate     DateTime @map("challan_date")
+  customerId      Int      @map("customer_id")
+  gasCode         String?  @map("gas_code")
+  cylinderOwner   String?  @map("cylinder_owner")
+  cylindersCount  Int?     @map("cylinders_count")
+  quantityCum     Decimal? @map("quantity_cum")
+  vehicleNumber   String?  @map("vehicle_number")
+  transactionType String?  @map("transaction_type")
+  status          String   @default("OPEN")
+  linkedBillId    Int?     @map("linked_bill_id")
+  operatorId      Int?     @map("operator_id")
+  createdAt       DateTime @default(now()) @map("created_at")
 
-  customer        Customer  @relation(fields: [customerId], references: [id])
-  linkedBill      Bill?     @relation(fields: [linkedBillId], references: [id])
+  customer   Customer @relation(fields: [customerId], references: [id])
+  linkedBill Bill?    @relation(fields: [linkedBillId], references: [id])
 
   @@index([linkedBillId])
   @@index([customerId, challanDate])
   @@index([status])
-
   @@map("challans")
 }
 
@@ -350,46 +360,65 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+model Account {
+  id             Int          @id @default(autoincrement())
+  code           String       @unique
+  name           String
+  group          AccountGroup
+  openingBalance Decimal?     @default(0) @map("opening_balance")
+  currentBalance Decimal?     @default(0) @map("current_balance")
+  isActive       Boolean      @default(true) @map("is_active")
+
+  customerId Int?      @unique @map("customer_id")
+  customer   Customer? @relation(fields: [customerId], references: [id])
+
+  ledgerEntries LedgerEntry[]
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  @@map("accounts")
+}
+
 model LedgerEntry {
-  id              Int       @id @default(autoincrement())
-  voucherNumber   String    @map("voucher_number")
-  voucherDate     DateTime  @map("voucher_date")
-  partyCode       String?   @map("party_code")
+  id              Int      @id @default(autoincrement())
+  voucherNumber   String   @map("voucher_number")
+  voucherDate     DateTime @map("voucher_date")
+  accountId       Int      @map("account_id")
   particular      String?
   narration       String?
-  debitAmount     Decimal?  @map("debit_amount")
-  creditAmount    Decimal?  @map("credit_amount")
-  chequeNumber    String?   @map("cheque_number")
-  transactionType String?   @map("transaction_type")
-  voucherRef      String?   @map("voucher_ref")
-  operatorId      Int?      @map("operator_id")
-  createdAt       DateTime  @default(now()) @map("created_at")
+  debitAmount     Decimal? @map("debit_amount")
+  creditAmount    Decimal? @map("credit_amount")
+  chequeNumber    String?  @map("cheque_number")
+  transactionType String?  @map("transaction_type")
+  voucherRef      String?  @map("voucher_ref")
+  operatorId      Int?     @map("operator_id")
+  createdAt       DateTime @default(now()) @map("created_at")
 
-  customer        Customer? @relation(fields: [partyCode], references: [code])
+  account Account @relation(fields: [accountId], references: [id])
 
   @@index([voucherNumber])
+  @@index([accountId])
   @@map("ledger_entries")
 }
 
 model SalesBook {
-  id              Int       @id @default(autoincrement())
-  voucherNumber   String    @unique @map("voucher_number")
-  voucherDate     DateTime  @map("voucher_date")
-  partyCode       String?   @map("party_code")
-  documentNumber  String?   @map("document_number")
-  quantityIssued  Decimal?  @map("quantity_issued")
+  id              Int      @id @default(autoincrement())
+  voucherNumber   String   @unique @map("voucher_number")
+  voucherDate     DateTime @map("voucher_date")
+  partyCode       String?  @map("party_code")
+  documentNumber  String?  @map("document_number")
+  quantityIssued  Decimal? @map("quantity_issued")
   unit            String?
   rate            Decimal?
-  gstCode         String?   @map("gst_code")
+  gstCode         String?  @map("gst_code")
   subtotal        Decimal?
-  gstAmount       Decimal?  @map("gst_amount")
-  totalAmount     Decimal?  @map("total_amount")
-  transactionCode String?   @map("transaction_code")
-  operatorId      Int?      @map("operator_id")
-  billNumber      String?   @map("bill_number")
-  createdAt       DateTime  @default(now()) @map("created_at")
+  gstAmount       Decimal? @map("gst_amount")
+  totalAmount     Decimal? @map("total_amount")
+  transactionCode String?  @map("transaction_code")
+  operatorId      Int?     @map("operator_id")
+  billNumber      String?  @map("bill_number")
+  createdAt       DateTime @default(now()) @map("created_at")
 
-  customer        Customer? @relation(fields: [partyCode], references: [code])
+  customer Customer? @relation(fields: [partyCode], references: [code])
 
   @@index([billNumber])
   @@map("sales_book")
@@ -406,43 +435,43 @@ model GstRate {
 }
 
 model Alert {
-  id          Int          @id @default(autoincrement())
-  type        AlertType
-  customerId  Int?         @map("customer_id")
-  cylinderId  Int?         @map("cylinder_id")
-  message     String
-  sentVia     AlertChannel @map("sent_via")
-  sentAt      DateTime     @default(now()) @map("sent_at")
-  isResolved  Boolean      @default(false) @map("is_resolved")
-  resolvedAt  DateTime?    @map("resolved_at")
+  id         Int          @id @default(autoincrement())
+  type       AlertType
+  customerId Int?         @map("customer_id")
+  cylinderId Int?         @map("cylinder_id")
+  message    String
+  sentVia    AlertChannel @map("sent_via")
+  sentAt     DateTime     @default(now()) @map("sent_at")
+  isResolved Boolean      @default(false) @map("is_resolved")
+  resolvedAt DateTime?    @map("resolved_at")
 
-  customer    Customer?    @relation("CustomerAlerts", fields: [customerId], references: [id])
-  cylinder    Cylinder?    @relation("CylinderAlerts", fields: [cylinderId], references: [id])
+  customer Customer? @relation("CustomerAlerts", fields: [customerId], references: [id])
+  cylinder Cylinder? @relation("CylinderAlerts", fields: [cylinderId], references: [id])
 
   @@map("alerts")
 }
 
 model CompanySetting {
-  id       Int    @id @default(autoincrement())
-  key      String @unique
-  value    String
+  id    Int    @id @default(autoincrement())
+  key   String @unique
+  value String
 
   @@map("company_settings")
 }
 
 model InterCompanyTransfer {
-  id              Int       @id @default(autoincrement())
-  transferNumber  String    @unique @map("transfer_number")
-  transferDate    DateTime  @map("transfer_date")
-  sourceCompany   String    @map("source_company")
-  destCompany     String    @map("dest_company")
-  gasCode         String?   @map("gas_code")
-  cylindersCount  Int       @default(0) @map("cylinders_count")
-  quantityCum     Decimal?  @map("quantity_cum")
-  vehicleNumber   String?   @map("vehicle_number")
-  notes           String?
-  operatorId      Int?      @map("operator_id")
-  createdAt       DateTime  @default(now()) @map("created_at")
+  id             Int      @id @default(autoincrement())
+  transferNumber String   @unique @map("transfer_number")
+  transferDate   DateTime @map("transfer_date")
+  sourceCompany  String   @map("source_company")
+  destCompany    String   @map("dest_company")
+  gasCode        String?  @map("gas_code")
+  cylindersCount Int      @default(0) @map("cylinders_count")
+  quantityCum    Decimal? @map("quantity_cum")
+  vehicleNumber  String?  @map("vehicle_number")
+  notes          String?
+  operatorId     Int?     @map("operator_id")
+  createdAt      DateTime @default(now()) @map("created_at")
 
   @@index([sourceCompany, destCompany])
   @@index([transferDate])
