@@ -11,6 +11,52 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 
+function validateTierRanges(payload) {
+  const tiers = [];
+
+  if (Number(payload.rentalRate1) > 0) {
+    tiers.push({
+      name: "Tier 1",
+      from: Number(payload.rentalDaysFrom1 ?? 1),
+      to: Number(payload.rentalDaysTo1 ?? 15),
+    });
+  }
+  if (Number(payload.rentalRate2) > 0) {
+    tiers.push({
+      name: "Tier 2",
+      from: Number(payload.rentalDaysFrom2 ?? 16),
+      to: Number(payload.rentalDaysTo2 ?? 30),
+    });
+  }
+  if (Number(payload.rentalRate3) > 0) {
+    tiers.push({
+      name: "Tier 3",
+      from: Number(payload.rentalDaysFrom3 ?? 31),
+      to: payload.rentalDaysTo3 == null ? Number.POSITIVE_INFINITY : Number(payload.rentalDaysTo3),
+    });
+  }
+
+  for (let index = 0; index < tiers.length; index += 1) {
+    const current = tiers[index];
+    const previous = tiers[index - 1];
+
+    if (!Number.isFinite(current.from) || current.from < 1) {
+      return `${current.name} start day is invalid`;
+    }
+    if (current.to !== Number.POSITIVE_INFINITY && (!Number.isFinite(current.to) || current.to < current.from)) {
+      return `${current.name} end day must be >= start day`;
+    }
+    if (!previous && current.from !== 1) {
+      return `${current.name} must start at day 1`;
+    }
+    if (previous && previous.to !== Number.POSITIVE_INFINITY && current.from !== previous.to + 1) {
+      return `${current.name} must start at day ${previous.to + 1}`;
+    }
+  }
+
+  return null;
+}
+
 export default function RateListPage() {
   const { hasRole } = useAuth();
   const qc = useQueryClient();
@@ -49,6 +95,10 @@ export default function RateListPage() {
       else if (["rentalFreeDays", "rentalDaysFrom1", "rentalDaysTo1", "rentalDaysFrom2", "rentalDaysTo2", "rentalDaysFrom3", "rentalDaysTo3"].includes(k)) p[k] = parseInt(v);
       else p[k] = v;
     });
+
+    const tierError = validateTierRanges(p);
+    if (tierError) return toast.error(tierError);
+
     saveMut.mutate(p);
   };
 

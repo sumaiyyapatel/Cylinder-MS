@@ -108,6 +108,14 @@ export default function TransactionsPage() {
     }
   };
 
+  const handleBillPdf = async (bill) => {
+    try {
+      await generateBillPDF(bill, bill.customer);
+    } catch (e) {
+      toast.error(e.response?.data?.error || e.message || "Failed to generate PDF");
+    }
+  };
+
   const customerName = customers?.data?.find(c => c.id === parseInt(form.customerId))?.name || "";
 
   return (
@@ -243,7 +251,7 @@ export default function TransactionsPage() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => generateBillPDF(t, t.customer)}
+                          onClick={() => handleBillPdf(t)}
                           title="View PDF"
                           className="p-1 rounded hover:bg-slate-100 text-blue-600"
                         >

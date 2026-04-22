@@ -28,6 +28,26 @@ export default function SettingsPage() {
 
   useEffect(() => { if (data) setSettings(data); }, [data]);
 
+  const validateSettings = (payload) => {
+    const gstin = String(payload.company_gstin || "").trim().toUpperCase();
+    const phone = String(payload.company_phone || "").replace(/\D/g, "");
+    const thresholdRaw = String(payload.overdue_threshold_days || "").trim();
+
+    if (gstin && !/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(gstin)) {
+      return "Invalid GSTIN format";
+    }
+    if (phone && !/^\d{10}$/.test(phone)) {
+      return "Phone must be 10 digits";
+    }
+    if (thresholdRaw) {
+      const threshold = Number(thresholdRaw);
+      if (!Number.isInteger(threshold) || threshold <= 0) {
+        return "Overdue threshold must be a positive integer";
+      }
+    }
+    return null;
+  };
+
   const saveMut = useMutation({
     mutationFn: (d) => api.put("/settings", d),
     onSuccess: (res) => {
@@ -169,15 +189,19 @@ export default function SettingsPage() {
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div><Label className="text-sm">Company Name</Label><Input value={settings.company_name || ""} onChange={(e) => setSettings({ ...settings, company_name: e.target.value })} className="h-9 mt-1" disabled={!isAdmin} /></div>
-                    <div><Label className="text-sm">GSTIN</Label><Input value={settings.company_gstin || ""} onChange={(e) => setSettings({ ...settings, company_gstin: e.target.value })} className="h-9 mt-1" disabled={!isAdmin} /></div>
+                    <div><Label className="text-sm">GSTIN</Label><Input value={settings.company_gstin || ""} onChange={(e) => setSettings({ ...settings, company_gstin: e.target.value.toUpperCase() })} className="h-9 mt-1" disabled={!isAdmin} maxLength={15} /></div>
                     <div className="md:col-span-2"><Label className="text-sm">Address</Label><Input value={settings.company_address || ""} onChange={(e) => setSettings({ ...settings, company_address: e.target.value })} className="h-9 mt-1" disabled={!isAdmin} /></div>
                     <div><Label className="text-sm">City</Label><Input value={settings.company_city || ""} onChange={(e) => setSettings({ ...settings, company_city: e.target.value })} className="h-9 mt-1" disabled={!isAdmin} /></div>
-                    <div><Label className="text-sm">Phone</Label><Input value={settings.company_phone || ""} onChange={(e) => setSettings({ ...settings, company_phone: e.target.value })} className="h-9 mt-1" disabled={!isAdmin} /></div>
+                    <div><Label className="text-sm">Phone</Label><Input value={settings.company_phone || ""} onChange={(e) => setSettings({ ...settings, company_phone: e.target.value.replace(/\D/g, "") })} className="h-9 mt-1" disabled={!isAdmin} maxLength={10} /></div>
                     <div><Label className="text-sm">Financial Year</Label><Input value={settings.financial_year || ""} onChange={(e) => setSettings({ ...settings, financial_year: e.target.value })} className="h-9 mt-1" disabled={!isAdmin} /></div>
-                    <div><Label className="text-sm">Overdue Threshold (days)</Label><Input value={settings.overdue_threshold_days || ""} onChange={(e) => setSettings({ ...settings, overdue_threshold_days: e.target.value })} type="number" className="h-9 mt-1" disabled={!isAdmin} /></div>
+                    <div><Label className="text-sm">Overdue Threshold (days)</Label><Input value={settings.overdue_threshold_days || ""} onChange={(e) => setSettings({ ...settings, overdue_threshold_days: e.target.value.replace(/\D/g, "") })} type="number" className="h-9 mt-1" disabled={!isAdmin} /></div>
                   </div>
                   {isAdmin && (
-                    <div className="pt-2"><Button data-testid="save-settings-btn" onClick={() => saveMut.mutate(settings)} className="h-9 bg-blue-600 hover:bg-blue-700" disabled={saveMut.isPending}><Save className="w-4 h-4 mr-1" /> {saveMut.isPending ? "Saving..." : "Save Settings"}</Button></div>
+                    <div className="pt-2"><Button data-testid="save-settings-btn" onClick={() => {
+                      const error = validateSettings(settings);
+                      if (error) return toast.error(error);
+                      saveMut.mutate(settings);
+                    }} className="h-9 bg-blue-600 hover:bg-blue-700" disabled={saveMut.isPending}><Save className="w-4 h-4 mr-1" /> {saveMut.isPending ? "Saving..." : "Save Settings"}</Button></div>
                   )}
                 </div>
               )}

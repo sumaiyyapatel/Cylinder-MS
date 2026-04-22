@@ -106,6 +106,8 @@ model Customer {
   ecrRecords   EcrRecord[]
   challans     Challan[]
   holdings     CylinderHolding[]
+  payments     Payment[]
+  balance      CustomerBalance?
   alerts       Alert[]           @relation("CustomerAlerts")
   salesBook    SalesBook[]
   account      Account?
@@ -268,6 +270,7 @@ model Bill {
   customer Customer      @relation(fields: [customerId], references: [id])
   items    Transaction[]
   challans Challan[]
+  payments Payment[]
 
   @@index([customerId, billDate])
   @@index([billDate])
@@ -398,6 +401,41 @@ model LedgerEntry {
   @@index([voucherNumber])
   @@index([accountId])
   @@map("ledger_entries")
+}
+
+model Payment {
+  id            Int      @id @default(autoincrement())
+  voucherNumber String   @unique @map("voucher_number")
+  voucherDate   DateTime @map("voucher_date")
+  customerId    Int      @map("customer_id")
+  billId        Int?     @map("bill_id")
+  paymentMode   String   @map("payment_mode")
+  amount        Decimal
+  reference     String?
+  operatorId    Int?     @map("operator_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  customer Customer @relation(fields: [customerId], references: [id])
+  bill     Bill?    @relation(fields: [billId], references: [id])
+
+  @@index([customerId, voucherDate])
+  @@index([billId])
+  @@map("payments")
+}
+
+model CustomerBalance {
+  id          Int      @id @default(autoincrement())
+  customerId  Int      @unique @map("customer_id")
+  asOf        DateTime @map("as_of")
+  totalDebit  Decimal  @default(0) @map("total_debit")
+  totalCredit Decimal  @default(0) @map("total_credit")
+  balance     Decimal  @default(0)
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@index([customerId])
+  @@map("customer_balances")
 }
 
 model SalesBook {

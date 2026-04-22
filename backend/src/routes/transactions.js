@@ -16,6 +16,7 @@ const {
   generateSalesVoucherNumber,
 } = require('../services/numberingService');
 const { postLedgerEntries } = require('../services/ledgerPostingService');
+const { buildIssueEntries } = require('../services/ledgerValidationService');
 const { updateCylinderStatus, assertNoActiveHolding } = require('../services/cylinderStatusService');
 const { createAuditLog } = require('../services/auditService');
 const { createHolding } = require('../services/cylinderHoldingService');
@@ -399,63 +400,24 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
       },
     });
 
-const ledgerEntries = [
-  {
-    partyCode: customer.code,
-    particular: `Sales Bill ${billNumber}`,
-    narration: `Sales bill ${billNumber}`,
-    debitAmount: round2(tax.totalAmount),
-    creditAmount: null,
-    voucherRef: billNumber,
-  },
-  {
-    partyCode: null,
-    particular: `Sales ${billNumber}`,
-    narration: `Taxable amount for ${billNumber}`,
-    debitAmount: null,
-    creditAmount: round2(tax.taxableAmount),
-    voucherRef: billNumber,
-  },
-];
+    const ledgerEntries = buildIssueEntries({
+      partyCode: customer.code,
+      billNumber,
+      totalAmount: tax.totalAmount,
+      taxableAmount: tax.taxableAmount,
+      gstAmount: tax.gstAmount,
+      gstMode: tax.gstMode,
+      cgstAmount: tax.cgstAmount,
+      sgstAmount: tax.sgstAmount,
+      igstAmount: tax.igstAmount,
+    });
 
 // ✅ GST split
-if (tax.gstAmount > 0) {
-  if (tax.gstMode === 'INTER') {
-    // IGST
-    ledgerEntries.push({
-      partyCode: null,
-      particular: `IGST Payable ${billNumber}`,
-      narration: `IGST for ${billNumber}`,
-      debitAmount: null,
-      creditAmount: round2(tax.igstAmount || tax.gstAmount),
-      voucherRef: billNumber,
-    });
-  } else {
-    // CGST + SGST
-    ledgerEntries.push(
-      {
-        partyCode: null,
-        particular: `CGST Payable ${billNumber}`,
-        narration: `CGST for ${billNumber}`,
-        debitAmount: null,
-        creditAmount: round2(tax.cgstAmount || tax.gstAmount / 2),
-        voucherRef: billNumber,
-      },
-      {
-        partyCode: null,
-        particular: `SGST Payable ${billNumber}`,
-        narration: `SGST for ${billNumber}`,
-        debitAmount: null,
-        creditAmount: round2(tax.sgstAmount || tax.gstAmount / 2),
-        voucherRef: billNumber,
-      }
-    );
-  }
-}
 
-await postLedgerEntries(tx, effectiveBillDate, ledgerEntries, req.user.sub, {
-  transactionType: 'JOURNAL',
-});
+
+    await postLedgerEntries(tx, effectiveBillDate, ledgerEntries, req.user.sub, {
+      transactionType: 'JOURNAL',
+    });
     await createAuditLog(tx, {
       action: 'CREATE_BILL',
       module: 'transactions',

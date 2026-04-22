@@ -64,6 +64,14 @@ export default function EcrPage() {
     saveMut.mutate({ ...form, customerId: parseInt(form.customerId), quantityCum: form.quantityCum ? parseFloat(form.quantityCum) : undefined });
   };
 
+  const handleEcrPdf = async (record) => {
+    try {
+      await generateEcrPDF(record, record.customer);
+    } catch (e) {
+      toast.error(e.response?.data?.error || e.message || "Failed to generate PDF");
+    }
+  };
+
   return (
     <div className="space-y-4" data-testid="ecr-page">
       <div className="flex items-center justify-between">
@@ -169,7 +177,7 @@ export default function EcrPage() {
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => generateEcrPDF(e, e.customer)}
+                        onClick={() => handleEcrPdf(e)}
                         className="h-7 px-2 text-xs"
                       >
                         <FileText className="w-3.5 h-3.5 mr-1" /> Print

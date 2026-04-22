@@ -32,9 +32,20 @@ export default function OrdersPage() {
 
   const handleSave = (e) => {
     e.preventDefault();
-    const p = { ...form, customerId: parseInt(form.customerId), orderDate: new Date(form.orderDate).toISOString() };
+
+    const orderNumber = form.orderNumber.trim();
+    if (!orderNumber) return toast.error("Order number is required");
+    if (!form.customerId) return toast.error("Customer is required");
+    if (!form.orderDate) return toast.error("Order date is required");
+
+    const parsedOrderDate = new Date(form.orderDate);
+    if (Number.isNaN(parsedOrderDate.getTime())) return toast.error("Order date is invalid");
+
+    const p = { ...form, orderNumber, customerId: parseInt(form.customerId, 10), orderDate: parsedOrderDate.toISOString() };
     if (p.quantityCyl) p.quantityCyl = parseInt(p.quantityCyl); else delete p.quantityCyl;
     if (p.rate) p.rate = parseFloat(p.rate); else delete p.rate;
+    if (p.quantityCyl !== undefined && (!Number.isInteger(p.quantityCyl) || p.quantityCyl <= 0)) return toast.error("Quantity must be a positive integer");
+    if (p.rate !== undefined && (!Number.isFinite(p.rate) || p.rate < 0)) return toast.error("Rate must be a non-negative number");
     if (!p.gasCode) delete p.gasCode;
     saveMut.mutate(p);
   };

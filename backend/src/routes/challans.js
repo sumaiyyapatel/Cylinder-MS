@@ -17,6 +17,7 @@ const {
   validateCylinderNumber,
   validateCylinderNumbersUnique,
 } = require('../lib/validation');
+const { streamChallanPdf } = require('../services/pdfService');
 
 const router = express.Router();
 
@@ -39,6 +40,14 @@ router.get('/', authenticate, asyncHandler(async (req, res) => {
     prisma.challan.count({ where }),
   ]);
   res.json({ data: challans, total, page: parseInt(page, 10), totalPages: Math.ceil(total / parseInt(limit, 10)) });
+}));
+
+router.get('/:id/pdf', authenticate, asyncHandler(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) throw new AppError(400, 'Invalid challan id');
+
+  const sent = await streamChallanPdf(res, id);
+  if (!sent) throw new AppError(404, 'Challan not found');
 }));
 
 router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {

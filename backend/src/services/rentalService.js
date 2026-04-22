@@ -6,6 +6,82 @@ function tierWindow(fromVal, toVal, defaultFrom, defaultTo) {
   return to - from + 1;
 }
 
+function normalizeTierBoundary(value, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(1, Math.trunc(parsed)) : fallback;
+}
+
+function hasRate(value) {
+  return Number(value) > 0;
+}
+
+function getRentalTierDefinitions(rateConfig = {}) {
+  const tiers = [];
+
+  if (hasRate(rateConfig.rentalRate1)) {
+    const from = normalizeTierBoundary(rateConfig.rentalDaysFrom1, 1);
+    const to = normalizeTierBoundary(rateConfig.rentalDaysTo1, 15);
+    tiers.push({ name: 'Tier 1', rate: Number(rateConfig.rentalRate1), from, to });
+  }
+
+  if (hasRate(rateConfig.rentalRate2)) {
+    const from = normalizeTierBoundary(rateConfig.rentalDaysFrom2, 16);
+    const to = normalizeTierBoundary(rateConfig.rentalDaysTo2, 30);
+    tiers.push({ name: 'Tier 2', rate: Number(rateConfig.rentalRate2), from, to });
+  }
+
+  if (hasRate(rateConfig.rentalRate3)) {
+    const from = normalizeTierBoundary(rateConfig.rentalDaysFrom3, 31);
+    const rawTo = rateConfig.rentalDaysTo3;
+    const to = rawTo === undefined || rawTo === null || rawTo === ''
+      ? Number.POSITIVE_INFINITY
+      : normalizeTierBoundary(rawTo, from);
+    tiers.push({ name: 'Tier 3', rate: Number(rateConfig.rentalRate3), from, to });
+  }
+
+  return tiers;
+}
+
+function validateRentalTierConfig(rateConfig = {}) {
+  const tiers = getRentalTierDefinitions(rateConfig);
+
+  for (const tier of tiers) {
+    if (!Number.isFinite(tier.rate) || tier.rate < 0) {
+      throw new Error(`${tier.name} rate is invalid`);
+    }
+    if (!Number.isFinite(tier.from) || tier.from < 1) {
+      throw new Error(`${tier.name} start day is invalid`);
+    }
+    if (tier.to !== Number.POSITIVE_INFINITY && (!Number.isFinite(tier.to) || tier.to < tier.from)) {
+      throw new Error(`${tier.name} end day must be >= start day`);
+    }
+  }
+
+  for (let index = 0; index < tiers.length; index += 1) {
+    const current = tiers[index];
+    const previous = tiers[index - 1];
+
+    if (!previous) {
+      if (current.from !== 1) {
+        throw new Error(`${current.name} must start at day 1`);
+      }
+      continue;
+    }
+
+    if (previous.to === Number.POSITIVE_INFINITY) {
+      throw new Error(`${previous.name} cannot be open-ended when later tiers exist`);
+    }
+
+    const expectedFrom = previous.to + 1;
+    if (current.from !== expectedFrom) {
+      throw new Error(`${current.name} must start at day ${expectedFrom}`);
+    }
+  }
+
+  return tiers;
+}
+
 function calculateRent(holdDays, rateConfig) {
   if (!rateConfig) return 0;
 
@@ -15,24 +91,18 @@ function calculateRent(holdDays, rateConfig) {
 
   let rent = 0;
   let remainingDays = safeHoldDays - freeDays;
+  const tiers = validateRentalTierConfig(rateConfig);
 
-  // Tier 1
-  if (rateConfig.rentalRate1 && remainingDays > 0) {
-    const tier1Days = Math.min(remainingDays, tierWindow(rateConfig.rentalDaysFrom1, rateConfig.rentalDaysTo1, 1, 15));
-    rent += tier1Days * parseFloat(rateConfig.rentalRate1);
-    remainingDays -= tier1Days;
-  }
+  for (const tier of tiers) {
+    if (remainingDays <= 0) break;
 
-  // Tier 2
-  if (rateConfig.rentalRate2 && remainingDays > 0) {
-    const tier2Days = Math.min(remainingDays, tierWindow(rateConfig.rentalDaysFrom2, rateConfig.rentalDaysTo2, 16, 30));
-    rent += tier2Days * parseFloat(rateConfig.rentalRate2);
-    remainingDays -= tier2Days;
-  }
+    const windowDays = tier.to === Number.POSITIVE_INFINITY
+      ? remainingDays
+      : tierWindow(tier.from, tier.to, tier.from, tier.to);
 
-  // Tier 3 (remaining days)
-  if (rateConfig.rentalRate3 && remainingDays > 0) {
-    rent += remainingDays * parseFloat(rateConfig.rentalRate3);
+    const chargedDays = Math.min(remainingDays, windowDays);
+    rent += chargedDays * tier.rate;
+    remainingDays -= chargedDays;
   }
 
   return round2(rent);
@@ -69,4 +139,4 @@ async function getEffectiveRate(tx, { customerId = null, gasCode = null, ownerCo
   return defaultRate || null;
 }
 
-module.exports = { calculateRent, getEffectiveRate };
+module.exports = { calculateRent, getEffectiveRate, validateRentalTierConfig };

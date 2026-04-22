@@ -5,6 +5,12 @@ const { runReconciliation, validateHoldingRents, findOrphanedHoldings, auditBill
 
 const router = express.Router();
 
+function extractCount(countValue) {
+  if (typeof countValue === 'number') return countValue;
+  if (countValue && typeof countValue._all === 'number') return countValue._all;
+  return 0;
+}
+
 // Holding Statement - all customers x gas types
 router.get('/holding-statement', authenticate, async (req, res) => {
   try {
@@ -422,13 +428,13 @@ router.get('/sales-summary', authenticate, async (req, res) => {
 
     const custDetails = await Promise.all(byCust.map(async (c) => {
       const cust = await prisma.customer.findUnique({ where: { id: c.customerId }, select: { code: true, name: true } });
-      return { ...cust, count: c._count, totalCum: parseFloat(c._sum.quantityCum || 0) };
+      return { ...cust, count: extractCount(c._count), totalCum: parseFloat(c._sum.quantityCum || 0) };
     }));
 
     res.json({
-      byGas: byGas.map(g => ({ gasCode: g.gasCode, count: g._count, totalCum: parseFloat(g._sum.quantityCum || 0) })),
+      byGas: byGas.map(g => ({ gasCode: g.gasCode, count: extractCount(g._count), totalCum: parseFloat(g._sum.quantityCum || 0) })),
       byCustomer: custDetails.sort((a, b) => b.count - a.count),
-      totalBills: byGas.reduce((s, g) => s + g._count, 0),
+      totalBills: byGas.reduce((s, g) => s + extractCount(g._count), 0),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

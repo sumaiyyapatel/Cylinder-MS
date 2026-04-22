@@ -1,5 +1,6 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import api from "@/lib/api";
 
 // Common PDF settings
 const COMPANY_HEADER = {
@@ -160,135 +161,66 @@ function presentPDF(doc, fileName, mode = "download") {
   setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
 }
 
-// ===== BILL CUM CHALLAN PDF =====
-export function generateBillPDF(txn, customer, options = {}) {
-  const mode = options.mode || "view";
-  const doc = new jsPDF();
-  const y = addHeader(doc, "BILL CUM CHALLAN", `Bill No: ${txn.billNumber}`);
-  const items = txn.items || [];
-  
-  doc.setFontSize(10);
-  doc.setFont("helvetica", "normal");
-  doc.text(`Date: ${fmtDate(txn.billDate)}`, 14, y + 4);
-  doc.text(`Party: ${customer?.code || ""} - ${customer?.name || ""}`, 14, y + 10);
-  doc.text(`Address: ${customer?.address1 || ""}${customer?.city ? ", " + customer.city : ""}`, 14, y + 16);
-  doc.text(`GSTIN: ${customer?.gstin || "-"}`, 14, y + 22);
-  doc.text(`Owner: ${txn.cylinderOwner || "COC"}`, 140, y + 4);
-  doc.text(`Gas: ${txn.gasCode || "-"}`, 140, y + 10);
-  doc.text(`HSN: ${txn.hsnCode || "-"}`, 140, y + 16);
+async function downloadServerPdf(url, fileName, mode = "download") {
+  const response = await api.get(url, { responseType: "blob" });
+  const blob = new Blob([response.data], { type: "application/pdf" });
+  const objectUrl = URL.createObjectURL(blob);
 
-  // Item table with GST breakdown
-  const gstBreakup = txn.gstBreakup;
-  const salesBook = txn.salesBook;
-  
-  autoTable(doc, {
-    startY: y + 28,
-    head: [["Sr", "Cylinder No", "Cu.M / Kgs", "Rate", "Amount", "Status"]],
-    body: (items.length ? items : [txn]).map((item, index) => [
-      index + 1,
-      item.cylinderNumber || "-",
-      item.quantityCum || "-",
-      salesBook?.rate ? fmtINR(salesBook.rate) : "-",
-      item.quantityCum && salesBook?.rate ? fmtINR((parseFloat(item.quantityCum) || 0) * parseFloat(salesBook.rate)) : "-",
-      "OK"
-    ]),
-    theme: "grid",
-    headStyles: { fillColor: [37, 99, 235], fontSize: 9 },
-    styles: { fontSize: 9, cellPadding: 3 },
-    margin: { left: 14, right: 14 },
-  });
-
-  const fy = doc.lastAutoTable.finalY + 10;
-  
-  // GST Breakdown
-  if (gstBreakup) {
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "bold");
-    doc.text("GST Details:", 14, fy);
-    
-    const gstY = fy + 6;
-    doc.setFont("helvetica", "normal");
-    
-    if (gstBreakup.gstMode === "INTRA") {
-      doc.text(`CGST (${gstBreakup.gstRate/2}%): ${fmtINR(gstBreakup.cgstAmount)}`, 14, gstY);
-      doc.text(`SGST (${gstBreakup.gstRate/2}%): ${fmtINR(gstBreakup.sgstAmount)}`, 80, gstY);
-    } else {
-      doc.text(`IGST (${gstBreakup.gstRate}%): ${fmtINR(gstBreakup.igstAmount)}`, 14, gstY);
+  if (mode === "view" || mode === "print") {
+    const opened = window.open(objectUrl, "_blank", "noopener,noreferrer");
+    if (!opened) {
+      URL.revokeObjectURL(objectUrl);
+      throw new Error("Popup blocked");
     }
-    
-    doc.setFont("helvetica", "bold");
-    doc.text(`Taxable Amount: ${fmtINR(gstBreakup.taxableAmount)}`, 14, gstY + 6);
-    doc.text(`GST Amount: ${fmtINR(gstBreakup.gstAmount)}`, 80, gstY + 6);
-    doc.text(`Total Amount: ${fmtINR(gstBreakup.totalAmount)}`, 14, gstY + 12);
-    
-    // Total in words
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "normal");
-    const words = numberToWords(gstBreakup.totalAmount);
-    doc.text(`Amount in Words: ${words}`, 14, gstY + 18);
+    if (mode === "print") {
+      setTimeout(() => {
+        try {
+          opened.focus();
+          opened.print();
+        } catch {}
+      }, 700);
+    }
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+    return;
   }
 
-  doc.setFontSize(8);
-  doc.text("Receiver's Signature: _______________", 14, fy + (gstBreakup ? 35 : 20));
-  doc.text("Authorized Signatory: _______________", 120, fy + (gstBreakup ? 35 : 20));
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 2000);
+}
 
-  addFooter(doc);
-  presentPDF(doc, `Bill_${txn.billNumber?.replace(/\//g, "-")}.pdf`, mode);
+// ===== BILL CUM CHALLAN PDF =====
+export async function generateBillPDF(txn, customer, options = {}) {
+  const mode = options.mode || "view";
+  return downloadServerPdf(
+    `/bills/${txn.id}/pdf`,
+    `Bill_${txn.billNumber?.replace(/\//g, "-") || txn.id}.pdf`,
+    mode
+  );
 }
 
 // ===== ECR PDF =====
-export function generateEcrPDF(ecr, customer, options = {}) {
+export async function generateEcrPDF(ecr, customer, options = {}) {
   const mode = options.mode || "print";
-  const doc = new jsPDF();
-  const y = addHeader(doc, "EMPTY CYLINDER RETURN", `ECR No: ${ecr.ecrNumber}`);
-
-  doc.setFontSize(10);
-  doc.text(`Date: ${fmtDate(ecr.ecrDate)}`, 14, y + 4);
-  doc.text(`Party: ${customer?.code || ""} - ${customer?.name || ""}`, 14, y + 10);
-  doc.text(`Cylinder No: ${ecr.cylinderNumber || "-"}`, 14, y + 18);
-  doc.text(`Gas: ${ecr.gasCode || "-"}`, 100, y + 18);
-  doc.text(`Owner: ${ecr.cylinderOwner || "-"}`, 150, y + 18);
-
-  autoTable(doc, {
-    startY: y + 24,
-    head: [["Issue No", "Issue Date", "Hold Days", "Rent Amount", "Challan", "Vehicle"]],
-    body: [[
-      ecr.issueNumber || "-",
-      fmtDate(ecr.issueDate),
-      ecr.holdDays ?? "-",
-      `Rs. ${fmtINR(ecr.rentAmount)}`,
-      ecr.challanNumber || "-",
-      ecr.vehicleNumber || "-",
-    ]],
-    theme: "grid",
-    headStyles: { fillColor: [37, 99, 235], fontSize: 9 },
-    styles: { fontSize: 9, cellPadding: 3 },
-    margin: { left: 14, right: 14 },
-  });
-
-  addFooter(doc);
-  presentPDF(doc, `ECR_${ecr.ecrNumber?.replace(/\//g, "-")}.pdf`, mode);
+  return downloadServerPdf(
+    `/ecr/${ecr.id}/pdf`,
+    `ECR_${ecr.ecrNumber?.replace(/\//g, "-") || ecr.id}.pdf`,
+    mode
+  );
 }
 
 // ===== CHALLAN PDF =====
-export function generateChallanPDF(challan, customer) {
-  const doc = new jsPDF();
-  const y = addHeader(doc, "DELIVERY CHALLAN", `Challan No: ${challan.challanNumber}`);
-
-  doc.setFontSize(10);
-  doc.text(`Date: ${fmtDate(challan.challanDate)}`, 14, y + 4);
-  doc.text(`Party: ${customer?.code || ""} - ${customer?.name || ""}`, 14, y + 10);
-  doc.text(`Vehicle: ${challan.vehicleNumber || "-"}`, 14, y + 18);
-  doc.text(`Owner: ${challan.cylinderOwner || "-"}`, 100, y + 18);
-  doc.text(`Cylinders: ${challan.cylindersCount || 0}`, 150, y + 18);
-  doc.text(`Type: ${challan.transactionType || "-"}`, 14, y + 24);
-
-  doc.setFontSize(8);
-  doc.text("Receiver's Signature: _______________", 14, y + 44);
-  doc.text("Authorized Signatory: _______________", 120, y + 44);
-
-  addFooter(doc);
-  doc.save(`Challan_${challan.challanNumber?.replace(/\//g, "-")}.pdf`);
+export async function generateChallanPDF(challan, customer, options = {}) {
+  const mode = options.mode || "view";
+  return downloadServerPdf(
+    `/challans/${challan.id}/pdf`,
+    `Challan_${challan.challanNumber?.replace(/\//g, "-") || challan.id}.pdf`,
+    mode
+  );
 }
 
 // ===== HOLDING STATEMENT PDF =====

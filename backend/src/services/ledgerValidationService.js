@@ -13,6 +13,11 @@
 
 const { round2 } = require('./businessRules');
 
+function normalizeAmount(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? round2(amount) : 0;
+}
+
 /**
  * Validate that a set of ledger entries is balanced (total Dr === total Cr).
  * Returns { valid, totalDebit, totalCredit, difference }.
@@ -22,8 +27,8 @@ function validateBalance(entries = []) {
   let totalCredit = 0;
 
   for (const entry of entries) {
-    totalDebit += Number(entry.debitAmount || 0);
-    totalCredit += Number(entry.creditAmount || 0);
+    totalDebit += normalizeAmount(entry?.debitAmount);
+    totalCredit += normalizeAmount(entry?.creditAmount);
   }
 
   totalDebit = round2(totalDebit);
@@ -31,7 +36,7 @@ function validateBalance(entries = []) {
   const difference = round2(totalDebit - totalCredit);
 
   return {
-    valid: Math.abs(difference) < 0.01,
+    valid: Math.abs(difference) <= 0.01,
     totalDebit,
     totalCredit,
     difference,
@@ -42,43 +47,86 @@ function validateBalance(entries = []) {
  * Build standard ledger entries for a sales issue (bill/challan).
  * Returns array of entry objects ready for postLedgerEntries.
  *
- * Rule: Customer Dr (total), Sales Cr (taxable), GST Cr (gst)
+ * Rule: Customer Dr (total), Sales Cr (taxable), GST split Cr
  */
-function buildIssueEntries({ partyCode, billNumber, totalAmount, taxableAmount, gstAmount, narrationPrefix = 'Sales Bill' }) {
+function buildIssueEntries({
+  partyCode,
+  billNumber,
+  totalAmount,
+  taxableAmount,
+  gstAmount,
+  gstMode = 'INTRA',
+  cgstAmount = null,
+  sgstAmount = null,
+  igstAmount = null,
+  narrationPrefix = 'Sales Bill',
+}) {
   const entries = [];
+  const safeTotalAmount = normalizeAmount(totalAmount);
+  const safeTaxableAmount = normalizeAmount(taxableAmount);
+  const safeGstAmount = normalizeAmount(gstAmount);
 
   // Customer Dr
-  if (totalAmount > 0) {
+  if (safeTotalAmount > 0) {
     entries.push({
       partyCode,
       particular: `${narrationPrefix} ${billNumber}`,
       narration: `${narrationPrefix} ${billNumber}`,
-      debitAmount: round2(totalAmount),
+      debitAmount: safeTotalAmount,
       creditAmount: null,
       voucherRef: billNumber,
     });
   }
 
   // Sales Cr
-  if (taxableAmount > 0) {
+  if (safeTaxableAmount > 0) {
     entries.push({
       partyCode: null,
       particular: `Sales ${billNumber}`,
       narration: `Taxable amount for ${billNumber}`,
       debitAmount: null,
-      creditAmount: round2(taxableAmount),
+      creditAmount: safeTaxableAmount,
       voucherRef: billNumber,
     });
   }
 
-  // GST Output Cr
-  if (gstAmount > 0) {
+  if (safeGstAmount <= 0) {
+    return entries;
+  }
+
+  if (gstMode === 'INTER') {
     entries.push({
       partyCode: null,
-      particular: `GST Output ${billNumber}`,
-      narration: `GST output for ${billNumber}`,
+      particular: `IGST Payable ${billNumber}`,
+      narration: `IGST for ${billNumber}`,
       debitAmount: null,
-      creditAmount: round2(gstAmount),
+      creditAmount: normalizeAmount(igstAmount || safeGstAmount),
+      voucherRef: billNumber,
+    });
+    return entries;
+  }
+
+  const safeCgst = normalizeAmount(cgstAmount == null ? safeGstAmount / 2 : cgstAmount);
+  const safeSgst = normalizeAmount(sgstAmount == null ? safeGstAmount - safeCgst : sgstAmount);
+
+  if (safeCgst > 0) {
+    entries.push({
+      partyCode: null,
+      particular: `CGST Payable ${billNumber}`,
+      narration: `CGST for ${billNumber}`,
+      debitAmount: null,
+      creditAmount: safeCgst,
+      voucherRef: billNumber,
+    });
+  }
+
+  if (safeSgst > 0) {
+    entries.push({
+      partyCode: null,
+      particular: `SGST Payable ${billNumber}`,
+      narration: `SGST for ${billNumber}`,
+      debitAmount: null,
+      creditAmount: safeSgst,
       voucherRef: billNumber,
     });
   }

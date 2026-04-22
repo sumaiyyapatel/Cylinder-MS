@@ -95,6 +95,14 @@ export default function ChallansPage() {
     );
   };
 
+  const handleChallanPdf = async (challan) => {
+    try {
+      await generateChallanPDF(challan, challan.customer);
+    } catch (e) {
+      toast.error(e.response?.data?.error || e.message || "Failed to generate PDF");
+    }
+  };
+
   return (
     <div className="space-y-4" data-testid="challans-page">
       <div className="flex items-center justify-between">
@@ -148,7 +156,7 @@ export default function ChallansPage() {
                           type="button"
                           variant="outline"
                           size="sm"
-                          onClick={() => generateChallanPDF(c, c.customer)}
+                          onClick={() => handleChallanPdf(c)}
                           className="h-7 px-2 text-xs"
                         >
                           <Printer className="w-3.5 h-3.5 mr-1" /> Print
