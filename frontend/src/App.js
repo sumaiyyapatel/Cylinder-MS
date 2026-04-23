@@ -27,8 +27,11 @@ function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+      <div className="flex min-h-screen items-center justify-center bg-[linear-gradient(135deg,#14263f_0%,#1e3a5f_45%,#0f172a_100%)]">
+        <div className="rounded-3xl border border-white/10 bg-white/10 px-8 py-7 text-center text-white backdrop-blur">
+          <div className="mx-auto h-9 w-9 animate-spin rounded-full border-b-2 border-amber-400" />
+          <div className="mt-3 text-sm font-medium text-slate-100">Loading workspace...</div>
+        </div>
       </div>
     );
   }
@@ -40,8 +43,11 @@ function AppRoutes() {
   const { user, loading } = useAuth();
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+      <div className="flex min-h-screen items-center justify-center bg-[linear-gradient(135deg,#14263f_0%,#1e3a5f_45%,#0f172a_100%)]">
+        <div className="rounded-3xl border border-white/10 bg-white/10 px-8 py-7 text-center text-white backdrop-blur">
+          <div className="mx-auto h-9 w-9 animate-spin rounded-full border-b-2 border-amber-400" />
+          <div className="mt-3 text-sm font-medium text-slate-100">Loading routes...</div>
+        </div>
       </div>
     );
   }

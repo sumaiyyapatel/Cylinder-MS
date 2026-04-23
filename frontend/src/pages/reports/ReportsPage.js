@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Printer, Download } from "lucide-react";
+import { Download, Printer, SearchCheck } from "lucide-react";
 import { 
   generateHoldingPDF, 
   generateDailyReportPDF, 
@@ -287,19 +287,34 @@ export default function ReportsPage() {
   };
 
   return (
-    <div className="space-y-4" data-testid="reports-page">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900" style={{ fontFamily: 'var(--font-heading)' }}>Reports</h1>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handlePrint} className="h-8 text-xs no-print"><Printer className="w-3.5 h-3.5 mr-1" /> Print</Button>
-          <Button variant="outline" size="sm" onClick={handleExportPDF} className="h-8 text-xs no-print">
-            <Download className="w-3.5 h-3.5 mr-1" /> Export PDF
-          </Button>
+    <div className="page-shell" data-testid="reports-page">
+      <section className="page-header">
+        <div className="page-eyebrow">Reports and controls</div>
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <h1 className="page-title">Reports that stay easy to scan under pressure.</h1>
+            <p className="page-subtitle">
+              Switch report types quickly, apply only the filters needed, then print or export without leaving the page.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Button variant="outline" size="sm" onClick={handlePrint} className="no-print border-white/20 bg-white/10 text-white hover:bg-white/15 hover:text-white">
+              <Printer className="mr-1 h-3.5 w-3.5" /> Print
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleExportPDF} className="no-print border-white/20 bg-white/10 text-white hover:bg-white/15 hover:text-white">
+              <Download className="mr-1 h-3.5 w-3.5" /> Export PDF
+            </Button>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <Tabs value={activeReport} onValueChange={setActiveReport} className="no-print">
-        <TabsList className="bg-slate-100 w-full justify-start overflow-x-auto">
+      <div className="filter-panel no-print">
+        <div className="mb-3 flex items-center gap-2 text-sm font-medium text-slate-700">
+          <SearchCheck className="h-4 w-4 text-amber-600" />
+          Report selector
+        </div>
+        <Tabs value={activeReport} onValueChange={setActiveReport}>
+        <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-2xl bg-slate-100 p-1.5">
           <TabsTrigger value="holding" data-testid="report-tab-holding">Holding Statement</TabsTrigger>
           <TabsTrigger value="daily" data-testid="report-tab-daily">Daily Report</TabsTrigger>
           <TabsTrigger value="customer-stmt" data-testid="report-tab-customer-stmt">Customer Statement</TabsTrigger>
@@ -314,10 +329,13 @@ export default function ReportsPage() {
           <TabsTrigger value="journal-book" data-testid="report-tab-journal-book">Journal Book</TabsTrigger>
           <TabsTrigger value="reconciliation" data-testid="report-tab-reconciliation">Reconciliation</TabsTrigger>
         </TabsList>
-      </Tabs>
+        </Tabs>
+      </div>
 
       {/* Filters */}
-      <div className="flex items-end gap-3 flex-wrap bg-white p-3 rounded-md border border-slate-200 no-print">
+      <div className="filter-panel no-print">
+        <div className="mb-3 text-sm font-medium text-slate-700">Filters</div>
+        <div className="flex flex-wrap items-end gap-3">
         {(activeReport === "holding" || activeReport === "customer-stmt" || activeReport === "sale-txn" || activeReport === "party-rental" || activeReport === "reconciliation") && (
           <div>
             <Label className="text-xs">Customer</Label>
@@ -365,6 +383,7 @@ export default function ReportsPage() {
             <div><Label className="text-xs">To</Label><Input type="date" value={filters.dateTo} onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })} className="h-9 mt-1 w-40" /></div>
           </>
         )}
+        </div>
       </div>
 
       {/* Holding Statement */}

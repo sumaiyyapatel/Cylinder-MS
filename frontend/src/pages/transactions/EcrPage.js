@@ -73,16 +73,22 @@ export default function EcrPage() {
   };
 
   return (
-    <div className="space-y-4" data-testid="ecr-page">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900" style={{ fontFamily: 'var(--font-heading)' }}>ECR (Empty Cylinder Returns)</h1>
-        <Button data-testid="new-ecr-btn" onClick={() => setShowForm(!showForm)} className="h-9 bg-blue-600 hover:bg-blue-700">
+    <div className="page-shell" data-testid="ecr-page">
+      <section className="page-header">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <div className="page-eyebrow">Returns</div>
+            <h1 className="page-title">Empty cylinder return with rent clarity.</h1>
+            <p className="page-subtitle">Look up the active holding, verify party and owner, then close the return with rent visible before save.</p>
+          </div>
+          <Button data-testid="new-ecr-btn" onClick={() => setShowForm(!showForm)} className="h-11 bg-emerald-600 hover:bg-emerald-700">
           <Plus className="w-4 h-4 mr-1" /> {showForm ? "Cancel" : "New ECR"}
-        </Button>
-      </div>
+          </Button>
+        </div>
+      </section>
 
       {showForm && (
-        <Card className="border border-slate-200 shadow-sm" data-testid="ecr-entry-form">
+        <Card className="section-card" data-testid="ecr-entry-form">
           <CardHeader className="pb-3"><CardTitle className="text-lg" style={{ fontFamily: 'var(--font-heading)' }}>ECR Entry</CardTitle></CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -151,9 +157,9 @@ export default function EcrPage() {
       )}
 
       {/* ECR List */}
-      <div className="bg-white rounded-md border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left" data-testid="ecr-table">
+      <div className="data-table-shell">
+        <div className="data-table-wrap">
+          <table className="data-table text-left" data-testid="ecr-table">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-xs uppercase tracking-wider font-semibold">
                 <th className="px-3 py-2">ECR No</th><th className="px-3 py-2">Date</th><th className="px-3 py-2">Customer</th>

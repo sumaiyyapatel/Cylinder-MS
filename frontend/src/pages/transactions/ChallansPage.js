@@ -104,14 +104,20 @@ export default function ChallansPage() {
   };
 
   return (
-    <div className="space-y-4" data-testid="challans-page">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900" style={{ fontFamily: 'var(--font-heading)' }}>Challans</h1>
-        <Button data-testid="new-challan-btn" onClick={() => setDialogOpen(true)} className="h-9 bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-1" /> New Challan</Button>
-      </div>
-      <div className="bg-white rounded-md border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left" data-testid="challans-table">
+    <div className="page-shell" data-testid="challans-page">
+      <section className="page-header">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <div className="page-eyebrow">Transport documents</div>
+            <h1 className="page-title">Challans that stay easy to convert and track.</h1>
+            <p className="page-subtitle">Dispatch teams can create, print, and convert documents without losing cylinder context.</p>
+          </div>
+          <Button data-testid="new-challan-btn" onClick={() => setDialogOpen(true)} className="h-11 bg-[var(--color-accent)] hover:bg-[var(--color-accent-strong)]"><Plus className="w-4 h-4 mr-1" /> New Challan</Button>
+        </div>
+      </section>
+      <div className="data-table-shell">
+        <div className="data-table-wrap">
+          <table className="data-table text-left" data-testid="challans-table">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-xs uppercase tracking-wider font-semibold">
                 <th className="px-3 py-2">Challan No</th><th className="px-3 py-2">Date</th><th className="px-3 py-2">Customer</th>

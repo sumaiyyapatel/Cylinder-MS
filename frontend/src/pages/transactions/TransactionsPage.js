@@ -119,16 +119,22 @@ export default function TransactionsPage() {
   const customerName = customers?.data?.find(c => c.id === parseInt(form.customerId))?.name || "";
 
   return (
-    <div className="space-y-4" data-testid="transactions-page">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900" style={{ fontFamily: 'var(--font-heading)' }}>Bill Cum Challan</h1>
-        <Button data-testid="new-bill-btn" onClick={() => setShowForm(!showForm)} className="h-9 bg-blue-600 hover:bg-blue-700">
+    <div className="page-shell" data-testid="transactions-page">
+      <section className="page-header">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <div className="page-eyebrow">Transactions</div>
+            <h1 className="page-title">Bill cum challan entry built for speed.</h1>
+            <p className="page-subtitle">Choose party, scan cylinders, confirm quantity, and keep issue errors visible before posting.</p>
+          </div>
+          <Button data-testid="new-bill-btn" onClick={() => setShowForm(!showForm)} className="h-11 bg-[var(--color-accent)] hover:bg-[var(--color-accent-strong)]">
           <Plus className="w-4 h-4 mr-1" /> {showForm ? "Cancel" : "New Bill"}
-        </Button>
-      </div>
+          </Button>
+        </div>
+      </section>
 
       {showForm && (
-        <Card className="border border-slate-200 shadow-sm" data-testid="bill-entry-form">
+        <Card className="section-card" data-testid="bill-entry-form">
           <CardHeader className="pb-3"><CardTitle className="text-lg" style={{ fontFamily: 'var(--font-heading)' }}>New Bill Cum Challan Entry</CardTitle></CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -213,9 +219,9 @@ export default function TransactionsPage() {
       )}
 
       {/* Transaction List */}
-      <div className="bg-white rounded-md border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left" data-testid="transactions-table">
+      <div className="data-table-shell">
+        <div className="data-table-wrap">
+            <table className="data-table text-left" data-testid="transactions-table">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-xs uppercase tracking-wider font-semibold">
                   <th className="px-3 py-2">Bill No</th><th className="px-3 py-2">Date</th><th className="px-3 py-2">Customer</th>

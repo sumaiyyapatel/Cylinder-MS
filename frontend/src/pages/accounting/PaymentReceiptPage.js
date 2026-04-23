@@ -108,12 +108,14 @@ export default function PaymentReceiptPage() {
   }
 
   return (
-    <div className="space-y-4" data-testid="payment-receipt-page">
-      <h1 className="text-2xl font-bold text-slate-900" style={{ fontFamily: "var(--font-heading)" }}>
-        Payment Receipt
-      </h1>
+    <div className="page-shell" data-testid="payment-receipt-page">
+      <section className="page-header">
+        <div className="page-eyebrow">Accounting</div>
+        <h1 className="page-title">Receipt posting with outstanding visibility.</h1>
+        <p className="page-subtitle">Choose the customer, see unpaid bills and current balance, then record the receipt against the correct reference.</p>
+      </section>
 
-      <Card className="border border-slate-200 shadow-sm">
+      <Card className="section-card">
         <CardHeader className="pb-3">
           <CardTitle className="text-lg" style={{ fontFamily: "var(--font-heading)" }}>
             Receipt Entry
