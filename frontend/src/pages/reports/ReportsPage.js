@@ -1,22 +1,211 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { Download, Printer, SearchCheck } from "lucide-react";
+import { toast } from "sonner";
 import api from "@/lib/api";
 import { formatDate, formatINR } from "@/lib/utils-format";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Download, Printer, SearchCheck } from "lucide-react";
-import { 
-  generateHoldingPDF, 
-  generateDailyReportPDF, 
-  generateCustomerStatementPDF, 
-  generateTrialBalancePDF,
-  generateTablePDF,
-} from "@/lib/pdf-export";
+import { EmptyState, MobileRecordList, SummaryPanel } from "@/components/ux/workflow";
+import { generateReportPDF } from "@/lib/pdf-export";
+
+const reportTabs = [
+  ["holding", "Holding Statement"],
+  ["daily", "Daily Report"],
+  ["customer-stmt", "Customer Statement"],
+  ["trial-balance", "Trial Balance"],
+  ["cylinder-rotation", "Cylinder Rotation"],
+  ["sale-txn", "Sale Transactions"],
+  ["outstanding", "Outstanding Payments"],
+  ["sales-summary", "Sales Summary"],
+  ["party-rental", "Party Wise Rental"],
+  ["cash-book", "Cash Book"],
+  ["bank-book", "Bank Book"],
+  ["journal-book", "Journal Book"],
+  ["reconciliation", "Reconciliation"],
+];
+
+const reportCatalog = {
+  holding: {
+    title: "Holding Statement",
+    description: "Customer-wise active cylinder holdings with overdue visibility.",
+  },
+  daily: {
+    title: "Daily Report",
+    description: "One-day issue and return snapshot.",
+  },
+  "customer-stmt": {
+    title: "Customer Statement",
+    description: "Issue and return history for one selected customer.",
+  },
+  "trial-balance": {
+    title: "Trial Balance",
+    description: "Debit, credit, and balance grouped by party.",
+  },
+  "cylinder-rotation": {
+    title: "Cylinder Rotation",
+    description: "Cylinder lifecycle history across issue and return events.",
+  },
+  "sale-txn": {
+    title: "Sale Transactions",
+    description: "Filtered sales transactions by date, customer, and gas.",
+  },
+  outstanding: {
+    title: "Outstanding Payments",
+    description: "Receivable and payable balances grouped by party.",
+  },
+  "sales-summary": {
+    title: "Sales Summary",
+    description: "Grouped totals by gas type and customer.",
+  },
+  "party-rental": {
+    title: "Party Wise Rental",
+    description: "Rental dues grouped by customer.",
+  },
+  "cash-book": {
+    title: "Cash Book",
+    description: "Cash movement with running balance.",
+  },
+  "bank-book": {
+    title: "Bank Book",
+    description: "Bank movement with running balance.",
+  },
+  "journal-book": {
+    title: "Journal Book",
+    description: "Manual journal-style accounting entries.",
+  },
+  reconciliation: {
+    title: "Reconciliation",
+    description: "Mismatch, missing ECR, and duplicate issue checks.",
+  },
+};
+
+function normalizeSelectValue(value) {
+  if (!value || value === "all") return undefined;
+  return value;
+}
+
+function countValue(value) {
+  if (typeof value === "number") return value;
+  if (value && typeof value === "object" && typeof value._all === "number") return value._all;
+  return 0;
+}
+
+function escapeCsvValue(value) {
+  const text = String(value ?? "");
+  if (/[",\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+function downloadCsv(fileName, columns, rows) {
+  const csv = [columns.map((column) => column.label), ...rows.map((row) => columns.map((column) => row[column.key] ?? ""))]
+    .map((line) => line.map((value) => escapeCsvValue(value)).join(","))
+    .join("\n");
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function createSection(title, columns, rows, options = {}) {
+  return {
+    title,
+    columns,
+    rows,
+    loading: options.loading || false,
+    emptyMessage: options.emptyMessage || "No records found",
+    className: options.className || "",
+  };
+}
+
+function ReportSection({ section }) {
+  if (section.loading) {
+    return (
+      <Card className="section-card">
+        <CardHeader className="section-header">
+          <CardTitle className="section-title">{section.title}</CardTitle>
+        </CardHeader>
+        <CardContent className="py-8 text-center text-sm text-slate-500">Loading...</CardContent>
+      </Card>
+    );
+  }
+
+  if (!section.rows.length) {
+    return (
+      <Card className="section-card">
+        <CardHeader className="section-header">
+          <CardTitle className="section-title">{section.title}</CardTitle>
+        </CardHeader>
+        <CardContent className="py-8 text-center text-sm text-slate-500">{section.emptyMessage}</CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className={`section-card ${section.className}`}>
+      <CardHeader className="section-header">
+        <CardTitle className="section-title">{section.title}</CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        <MobileRecordList
+          items={section.rows}
+          className="p-4"
+          renderCard={(row, index) => (
+            <Card key={`${section.title}-${index}`} className="rounded-2xl border border-slate-200 shadow-none">
+              <CardContent className="space-y-2 p-4">
+                {section.columns.map((column) => (
+                  <div key={column.key} className="flex items-start justify-between gap-3 text-sm">
+                    <span className="text-slate-500">{column.label}</span>
+                    <span className={`text-right font-medium text-slate-900 ${column.className || ""}`}>{row[column.key]}</span>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+        />
+        <div className="data-table-shell hidden rounded-none border-0 shadow-none md:block">
+          <div className="data-table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  {section.columns.map((column) => (
+                    <th key={column.key} className={column.align === "right" ? "text-right" : ""}>
+                      {column.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {section.rows.map((row, index) => (
+                  <tr key={`${section.title}-row-${index}`}>
+                    {section.columns.map((column) => (
+                      <td key={column.key} className={`${column.align === "right" ? "text-right" : ""} ${column.className || ""}`}>
+                        {row[column.key]}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function ReportsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -30,25 +219,10 @@ export default function ReportsPage() {
     date: new Date().toISOString().split("T")[0],
   });
 
-  // Handle URL parameters
   useEffect(() => {
     const tab = searchParams.get("tab");
-    const filter = searchParams.get("filter");
-    
-    if (tab) {
-      setActiveReport(tab);
-    }
-    
-    if (filter === "overdue") {
-      // For overdue filter, we need to modify the holding query to only show overdue cylinders
-      // This will be handled in the query itself
-    }
+    if (tab) setActiveReport(tab);
   }, [searchParams]);
-
-  const normalizeSelectValue = (value) => {
-    if (!value || value === "all") return undefined;
-    return value;
-  };
 
   const customerIdParam = normalizeSelectValue(filters.customerId);
   const gasCodeParam = normalizeSelectValue(filters.gasCode);
@@ -56,235 +230,585 @@ export default function ReportsPage() {
   const dateFromParam = filters.dateFrom || undefined;
   const dateToParam = filters.dateTo || undefined;
 
-  const { data: customers } = useQuery({ queryKey: ["customers-list"], queryFn: () => api.get("/customers", { params: { limit: 200 } }).then(r => r.data) });
-  const { data: gasTypes } = useQuery({ queryKey: ["gasTypes"], queryFn: () => api.get("/gas-types").then(r => r.data) });
+  const { data: customers } = useQuery({
+    queryKey: ["customers-list"],
+    queryFn: () => api.get("/customers", { params: { limit: 200 } }).then((response) => response.data),
+  });
+
+  const { data: gasTypes } = useQuery({
+    queryKey: ["gasTypes"],
+    queryFn: () => api.get("/gas-types").then((response) => response.data),
+  });
 
   const { data: holdingData, isLoading: holdingLoading } = useQuery({
     queryKey: ["report-holding", customerIdParam, gasCodeParam, searchParams.get("filter")],
-    queryFn: () => api.get("/reports/holding-statement", { 
-      params: { 
-        customerId: customerIdParam, 
-        gasCode: gasCodeParam,
-        filter: searchParams.get("filter")
-      } 
-    }).then(r => r.data),
+    queryFn: () =>
+      api
+        .get("/reports/holding-statement", {
+          params: {
+            customerId: customerIdParam,
+            gasCode: gasCodeParam,
+            filter: searchParams.get("filter"),
+          },
+        })
+        .then((response) => response.data),
     enabled: activeReport === "holding",
   });
 
   const { data: dailyData, isLoading: dailyLoading } = useQuery({
     queryKey: ["report-daily", filters.date],
-    queryFn: () => api.get("/reports/daily-report", { params: { date: filters.date } }).then(r => r.data),
+    queryFn: () => api.get("/reports/daily-report", { params: { date: filters.date } }).then((response) => response.data),
     enabled: activeReport === "daily",
   });
 
   const { data: customerStmt, isLoading: stmtLoading } = useQuery({
     queryKey: ["report-customer-stmt", customerIdParam, dateFromParam, dateToParam],
-    queryFn: () => api.get("/reports/customer-statement", { params: { customerId: customerIdParam, dateFrom: dateFromParam, dateTo: dateToParam } }).then(r => r.data),
+    queryFn: () =>
+      api
+        .get("/reports/customer-statement", {
+          params: { customerId: customerIdParam, dateFrom: dateFromParam, dateTo: dateToParam },
+        })
+        .then((response) => response.data),
     enabled: activeReport === "customer-stmt" && !!customerIdParam,
   });
 
   const { data: trialBalance, isLoading: tbLoading } = useQuery({
     queryKey: ["report-trial-balance", dateFromParam, dateToParam],
-    queryFn: () => api.get("/reports/trial-balance", { params: { dateFrom: dateFromParam, dateTo: dateToParam } }).then(r => r.data),
+    queryFn: () =>
+      api
+        .get("/reports/trial-balance", {
+          params: { dateFrom: dateFromParam, dateTo: dateToParam },
+        })
+        .then((response) => response.data),
     enabled: activeReport === "trial-balance",
   });
 
   const { data: cylinderRotation, isLoading: rotationLoading } = useQuery({
     queryKey: ["report-cylinder-rotation", cylinderNumberParam, gasCodeParam],
-    queryFn: () => api.get("/reports/cylinder-rotation", { params: { cylinderNumber: cylinderNumberParam, gasCode: gasCodeParam } }).then(r => r.data),
+    queryFn: () =>
+      api
+        .get("/reports/cylinder-rotation", {
+          params: { cylinderNumber: cylinderNumberParam, gasCode: gasCodeParam },
+        })
+        .then((response) => response.data),
     enabled: activeReport === "cylinder-rotation",
   });
 
   const { data: saleTransactions, isLoading: salesTxnLoading } = useQuery({
     queryKey: ["report-sale-transactions", dateFromParam, dateToParam, customerIdParam, gasCodeParam],
-    queryFn: () => api.get("/reports/sale-transactions", {
-      params: { dateFrom: dateFromParam, dateTo: dateToParam, customerId: customerIdParam, gasCode: gasCodeParam },
-    }).then(r => r.data),
+    queryFn: () =>
+      api
+        .get("/reports/sale-transactions", {
+          params: { dateFrom: dateFromParam, dateTo: dateToParam, customerId: customerIdParam, gasCode: gasCodeParam },
+        })
+        .then((response) => response.data),
     enabled: activeReport === "sale-txn",
   });
 
   const { data: outstandingData, isLoading: outstandingLoading } = useQuery({
     queryKey: ["report-outstanding"],
-    queryFn: () => api.get("/reports/outstanding").then(r => r.data),
+    queryFn: () => api.get("/reports/outstanding").then((response) => response.data),
     enabled: activeReport === "outstanding",
   });
 
   const { data: salesSummary, isLoading: salesSummaryLoading } = useQuery({
     queryKey: ["report-sales-summary", dateFromParam, dateToParam],
-    queryFn: () => api.get("/reports/sales-summary", { params: { dateFrom: dateFromParam, dateTo: dateToParam } }).then(r => r.data),
+    queryFn: () =>
+      api
+        .get("/reports/sales-summary", {
+          params: { dateFrom: dateFromParam, dateTo: dateToParam },
+        })
+        .then((response) => response.data),
     enabled: activeReport === "sales-summary",
   });
 
   const { data: partyRental, isLoading: partyRentalLoading } = useQuery({
     queryKey: ["report-party-rental", customerIdParam, dateFromParam, dateToParam],
-    queryFn: () => api.get("/reports/party-rental", {
-      params: { customerId: customerIdParam, dateFrom: dateFromParam, dateTo: dateToParam },
-    }).then(r => r.data),
+    queryFn: () =>
+      api
+        .get("/reports/party-rental", {
+          params: { customerId: customerIdParam, dateFrom: dateFromParam, dateTo: dateToParam },
+        })
+        .then((response) => response.data),
     enabled: activeReport === "party-rental",
   });
 
   const { data: cashBook, isLoading: cashBookLoading } = useQuery({
     queryKey: ["report-cash-book", dateFromParam, dateToParam],
-    queryFn: () => api.get("/reports/cash-book", { params: { dateFrom: dateFromParam, dateTo: dateToParam } }).then(r => r.data),
+    queryFn: () =>
+      api
+        .get("/reports/cash-book", {
+          params: { dateFrom: dateFromParam, dateTo: dateToParam },
+        })
+        .then((response) => response.data),
     enabled: activeReport === "cash-book",
   });
 
   const { data: bankBook, isLoading: bankBookLoading } = useQuery({
     queryKey: ["report-bank-book", dateFromParam, dateToParam],
-    queryFn: () => api.get("/reports/bank-book", { params: { dateFrom: dateFromParam, dateTo: dateToParam } }).then(r => r.data),
+    queryFn: () =>
+      api
+        .get("/reports/bank-book", {
+          params: { dateFrom: dateFromParam, dateTo: dateToParam },
+        })
+        .then((response) => response.data),
     enabled: activeReport === "bank-book",
   });
 
   const { data: journalBook, isLoading: journalBookLoading } = useQuery({
     queryKey: ["report-journal-book", dateFromParam, dateToParam],
-    queryFn: () => api.get("/reports/journal-book", { params: { dateFrom: dateFromParam, dateTo: dateToParam } }).then(r => r.data),
+    queryFn: () =>
+      api
+        .get("/reports/journal-book", {
+          params: { dateFrom: dateFromParam, dateTo: dateToParam },
+        })
+        .then((response) => response.data),
     enabled: activeReport === "journal-book",
   });
 
   const { data: reconciliationData, isLoading: reconciliationLoading } = useQuery({
     queryKey: ["report-reconciliation", customerIdParam, gasCodeParam],
-    queryFn: () => api.get("/reports/reconciliation", {
-      params: { customerId: customerIdParam, gasCode: gasCodeParam },
-    }).then(r => r.data),
+    queryFn: () =>
+      api
+        .get("/reports/reconciliation", {
+          params: { customerId: customerIdParam, gasCode: gasCodeParam },
+        })
+        .then((response) => response.data),
     enabled: activeReport === "reconciliation",
   });
 
-  const countValue = (value) => {
-    if (typeof value === "number") return value;
-    if (value && typeof value === "object" && typeof value._all === "number") return value._all;
-    return 0;
-  };
+  const reportSections = useMemo(() => {
+    switch (activeReport) {
+      case "holding":
+        return (holdingData || []).map((group) =>
+          createSection(
+            `${group.customerCode} - ${group.customerName} (${group.cylinders?.length || 0} cylinders)`,
+            [
+              { key: "cylinderNumber", label: "Cylinder No", className: "mono-value text-xs" },
+              { key: "gasCode", label: "Gas" },
+              { key: "ownerCode", label: "Owner" },
+              { key: "issuedAt", label: "Issued Date" },
+              { key: "billNumber", label: "Bill No" },
+              { key: "holdDays", label: "Hold Days", align: "right" },
+            ],
+            (group.cylinders || []).map((cylinder) => ({
+              cylinderNumber: cylinder.cylinderNumber,
+              gasCode: cylinder.gasCode,
+              ownerCode: cylinder.ownerCode,
+              issuedAt: formatDate(cylinder.issuedAt),
+              billNumber: cylinder.billNumber || "-",
+              holdDays: cylinder.holdDays,
+            })),
+            { loading: holdingLoading, emptyMessage: "No holdings found" }
+          )
+        );
+      case "daily":
+        return [
+          createSection(
+            `Issues (${dailyData?.issues?.length || 0})`,
+            [
+              { key: "billNumber", label: "Bill No", className: "mono-value text-xs" },
+              { key: "customer", label: "Customer" },
+              { key: "cylinder", label: "Cylinder" },
+              { key: "gasCode", label: "Gas" },
+              { key: "quantity", label: "Cu.M", align: "right" },
+            ],
+            (dailyData?.issues || []).map((item) => ({
+              billNumber: item.billNumber,
+              customer: item.customer?.name || "-",
+              cylinder: item.cylinderNumber || "-",
+              gasCode: item.gasCode || "-",
+              quantity: item.quantityCum || "-",
+            })),
+            { loading: dailyLoading, emptyMessage: "No issues found for this date" }
+          ),
+          createSection(
+            `Returns (${dailyData?.returns?.length || 0})`,
+            [
+              { key: "ecrNumber", label: "ECR No", className: "mono-value text-xs" },
+              { key: "customer", label: "Customer" },
+              { key: "cylinder", label: "Cylinder" },
+              { key: "holdDays", label: "Days", align: "right" },
+              { key: "rentAmount", label: "Rent", align: "right" },
+            ],
+            (dailyData?.returns || []).map((item) => ({
+              ecrNumber: item.ecrNumber,
+              customer: item.customer?.name || "-",
+              cylinder: item.cylinderNumber || "-",
+              holdDays: item.holdDays ?? "-",
+              rentAmount: formatINR(item.rentAmount || 0),
+            })),
+            { loading: dailyLoading, emptyMessage: "No returns found for this date" }
+          ),
+        ];
+      case "customer-stmt":
+        return [
+          createSection(
+            `Issues (${customerStmt?.issues?.length || 0})`,
+            [
+              { key: "billNumber", label: "Bill No", className: "mono-value text-xs" },
+              { key: "billDate", label: "Date" },
+              { key: "cylinder", label: "Cylinder" },
+              { key: "gasCode", label: "Gas" },
+              { key: "quantity", label: "Cu.M", align: "right" },
+            ],
+            (customerStmt?.issues || []).map((item) => ({
+              billNumber: item.billNumber,
+              billDate: formatDate(item.billDate),
+              cylinder: item.cylinderNumber || "-",
+              gasCode: item.gasCode || "-",
+              quantity: item.quantityCum || "-",
+            })),
+            { loading: stmtLoading, emptyMessage: "No issues found for this customer" }
+          ),
+          createSection(
+            `Returns (${customerStmt?.returns?.length || 0})`,
+            [
+              { key: "ecrNumber", label: "ECR No", className: "mono-value text-xs" },
+              { key: "ecrDate", label: "Date" },
+              { key: "cylinder", label: "Cylinder" },
+              { key: "holdDays", label: "Days", align: "right" },
+              { key: "rentAmount", label: "Rent", align: "right" },
+            ],
+            (customerStmt?.returns || []).map((item) => ({
+              ecrNumber: item.ecrNumber,
+              ecrDate: formatDate(item.ecrDate),
+              cylinder: item.cylinderNumber || "-",
+              holdDays: item.holdDays ?? "-",
+              rentAmount: formatINR(item.rentAmount || 0),
+            })),
+            { loading: stmtLoading, emptyMessage: "No returns found for this customer" }
+          ),
+        ];
+      case "trial-balance":
+        return [
+          createSection(
+            "Trial Balance",
+            [
+              { key: "partyCode", label: "Party Code" },
+              { key: "partyName", label: "Party Name" },
+              { key: "debit", label: "Debit", align: "right" },
+              { key: "credit", label: "Credit", align: "right" },
+              { key: "balance", label: "Balance", align: "right" },
+            ],
+            (trialBalance || []).map((entry) => ({
+              partyCode: entry.partyCode || "-",
+              partyName: entry.partyName || "-",
+              debit: formatINR(entry.debit || 0),
+              credit: formatINR(entry.credit || 0),
+              balance: `${formatINR(Math.abs(entry.balance || 0))} ${entry.balance > 0 ? "Dr" : "Cr"}`,
+            })),
+            { loading: tbLoading, emptyMessage: "No balances found" }
+          ),
+        ];
+      case "cylinder-rotation":
+        return (cylinderRotation || []).map((group) =>
+          createSection(
+            `${group.cylinderNumber} (${group.currentStatus || "-"})`,
+            [
+              { key: "customer", label: "Customer" },
+              { key: "billNumber", label: "Bill No", className: "mono-value text-xs" },
+              { key: "issuedAt", label: "Issue Date" },
+              { key: "returnedAt", label: "Return Date" },
+              { key: "holdDays", label: "Days Held", align: "right" },
+              { key: "status", label: "Status" },
+            ],
+            (group.history || []).map((item) => ({
+              customer: `${item.customerCode || "-"} - ${item.customerName || "-"}`,
+              billNumber: item.billNumber || "-",
+              issuedAt: formatDate(item.issuedAt),
+              returnedAt: item.returnedAt ? formatDate(item.returnedAt) : "-",
+              holdDays: item.holdDays ?? "-",
+              status: item.status || "-",
+            })),
+            { loading: rotationLoading, emptyMessage: "No rotation history found" }
+          )
+        );
+      case "sale-txn":
+        return [
+          createSection(
+            "Sale Transactions",
+            [
+              { key: "billNumber", label: "Bill Number", className: "mono-value text-xs" },
+              { key: "billDate", label: "Date" },
+              { key: "customer", label: "Customer" },
+              { key: "cylinder", label: "Cylinder" },
+              { key: "gasCode", label: "Gas" },
+              { key: "quantity", label: "Cu.M", align: "right" },
+            ],
+            (saleTransactions || []).map((item) => ({
+              billNumber: item.billNumber || "-",
+              billDate: formatDate(item.billDate),
+              customer: item.customer?.name || "-",
+              cylinder: item.cylinderNumber || "-",
+              gasCode: item.gasCode || "-",
+              quantity: item.quantityCum ?? "-",
+            })),
+            { loading: salesTxnLoading, emptyMessage: "No sale transactions found" }
+          ),
+        ];
+      case "outstanding":
+        return [
+          createSection(
+            "Outstanding Payments",
+            [
+              { key: "party", label: "Party" },
+              { key: "debit", label: "Debit", align: "right" },
+              { key: "credit", label: "Credit", align: "right" },
+              { key: "balance", label: "Balance", align: "right" },
+              { key: "type", label: "Type" },
+            ],
+            (outstandingData || []).map((item) => ({
+              party: `${item.partyCode || "-"} - ${item.partyName || "-"}`,
+              debit: formatINR(item.debit || 0),
+              credit: formatINR(item.credit || 0),
+              balance: `${formatINR(Math.abs(item.balance || 0))} ${item.balance > 0 ? "Dr" : "Cr"}`,
+              type: item.type || "-",
+            })),
+            { loading: outstandingLoading, emptyMessage: "No outstanding balances found" }
+          ),
+        ];
+      case "sales-summary":
+        return [
+          createSection(
+            "By Gas",
+            [
+              { key: "gasCode", label: "Gas" },
+              { key: "count", label: "Bills", align: "right" },
+              { key: "totalCum", label: "Total Cu.M", align: "right" },
+            ],
+            (salesSummary?.byGas || []).map((item) => ({
+              gasCode: item.gasCode || "-",
+              count: countValue(item.count),
+              totalCum: item.totalCum ?? 0,
+            })),
+            { loading: salesSummaryLoading, emptyMessage: "No gas summary" }
+          ),
+          createSection(
+            "By Customer",
+            [
+              { key: "customer", label: "Customer" },
+              { key: "count", label: "Bills", align: "right" },
+              { key: "totalCum", label: "Total Cu.M", align: "right" },
+            ],
+            (salesSummary?.byCustomer || []).map((item) => ({
+              customer: `${item?.code || "-"} - ${item?.name || "-"}`,
+              count: countValue(item?.count),
+              totalCum: item?.totalCum ?? 0,
+            })),
+            { loading: salesSummaryLoading, emptyMessage: "No customer summary" }
+          ),
+        ];
+      case "party-rental":
+        return [
+          createSection(
+            "Party Wise Rental",
+            [
+              { key: "party", label: "Party" },
+              { key: "count", label: "Returned Cylinders", align: "right" },
+              { key: "totalDays", label: "Total Days", align: "right" },
+              { key: "totalRent", label: "Total Rent", align: "right" },
+            ],
+            (partyRental || []).map((item) => ({
+              party: `${item.partyCode || "-"} - ${item.partyName || "-"}`,
+              count: item.count || 0,
+              totalDays: item.totalDays || 0,
+              totalRent: formatINR(item.totalRent || 0),
+            })),
+            { loading: partyRentalLoading, emptyMessage: "No rental records found" }
+          ),
+        ];
+      case "cash-book":
+      case "bank-book":
+      case "journal-book": {
+        const dataMap = {
+          "cash-book": { rows: cashBook || [], loading: cashBookLoading, title: "Cash Book" },
+          "bank-book": { rows: bankBook || [], loading: bankBookLoading, title: "Bank Book" },
+          "journal-book": { rows: journalBook || [], loading: journalBookLoading, title: "Journal Book" },
+        };
+        const selected = dataMap[activeReport];
+        return [
+          createSection(
+            selected.title,
+            [
+              { key: "voucherNumber", label: "Voucher No", className: "mono-value text-xs" },
+              { key: "voucherDate", label: "Date" },
+              { key: "party", label: "Party" },
+              { key: "particular", label: "Particular" },
+              { key: "debit", label: "Debit", align: "right" },
+              { key: "credit", label: "Credit", align: "right" },
+              ...(activeReport !== "journal-book" ? [{ key: "runningBalance", label: "Running Balance", align: "right" }] : []),
+            ],
+            selected.rows.map((item) => ({
+              voucherNumber: item.voucherNumber || "-",
+              voucherDate: formatDate(item.voucherDate),
+              party: item.customer?.name || item.partyCode || "-",
+              particular: item.particular || "-",
+              debit: item.debitAmount ? formatINR(item.debitAmount) : "-",
+              credit: item.creditAmount ? formatINR(item.creditAmount) : "-",
+              runningBalance: item.runningBalance != null ? formatINR(item.runningBalance) : "-",
+            })),
+            { loading: selected.loading, emptyMessage: `No ${selected.title.toLowerCase()} entries found` }
+          ),
+        ];
+      }
+      case "reconciliation":
+        return [
+          createSection(
+            `Mismatches (${reconciliationData?.mismatches?.length || 0})`,
+            [
+              { key: "customer", label: "Customer" },
+              { key: "gasCode", label: "Gas" },
+              { key: "ownerCode", label: "Owner" },
+              { key: "issued", label: "Issued", align: "right" },
+              { key: "returned", label: "Returned", align: "right" },
+              { key: "balance", label: "Balance", align: "right" },
+              { key: "activeHoldings", label: "Holdings", align: "right" },
+              { key: "delta", label: "Delta", align: "right", className: "font-semibold text-red-600" },
+            ],
+            (reconciliationData?.mismatches || []).map((item) => ({
+              customer: `${item.customerCode} - ${item.customerName}`,
+              gasCode: item.gasCode,
+              ownerCode: item.ownerCode,
+              issued: item.issued,
+              returned: item.returned,
+              balance: item.balance,
+              activeHoldings: item.activeHoldings,
+              delta: `${item.delta > 0 ? "+" : ""}${item.delta}`,
+            })),
+            { loading: reconciliationLoading, emptyMessage: "No mismatches found" }
+          ),
+          createSection(
+            `Missing ECR (${reconciliationData?.missingEcr?.length || 0})`,
+            [
+              { key: "customerCode", label: "Customer" },
+              { key: "cylinderNumber", label: "Cylinder", className: "mono-value text-xs" },
+              { key: "issuedAt", label: "Issued" },
+              { key: "returnedAt", label: "Returned" },
+            ],
+            (reconciliationData?.missingEcr || []).map((item) => ({
+              customerCode: item.customerCode,
+              cylinderNumber: item.cylinderNumber,
+              issuedAt: formatDate(item.issuedAt),
+              returnedAt: item.returnedAt ? formatDate(item.returnedAt) : "-",
+            })),
+            { loading: reconciliationLoading, emptyMessage: "No missing ECR records" }
+          ),
+          createSection(
+            `Duplicate Issues (${reconciliationData?.duplicateIssues?.length || 0})`,
+            [
+              { key: "cylinderNumber", label: "Cylinder", className: "mono-value text-xs" },
+              { key: "count", label: "Active Holdings", align: "right" },
+              { key: "customers", label: "Customers" },
+            ],
+            (reconciliationData?.duplicateIssues || []).map((item) => ({
+              cylinderNumber: item.cylinderNumber,
+              count: item.count,
+              customers: item.records?.map((record) => record.customerCode).join(", ") || "-",
+            })),
+            { loading: reconciliationLoading, emptyMessage: "No duplicate issues found" }
+          ),
+        ];
+      default:
+        return [];
+    }
+  }, [
+    activeReport,
+    bankBook,
+    bankBookLoading,
+    cashBook,
+    cashBookLoading,
+    customerStmt,
+    cylinderRotation,
+    dailyData,
+    holdingData,
+    holdingLoading,
+    journalBook,
+    journalBookLoading,
+    outstandingData,
+    outstandingLoading,
+    partyRental,
+    partyRentalLoading,
+    reconciliationData,
+    reconciliationLoading,
+    rotationLoading,
+    saleTransactions,
+    salesSummary,
+    salesSummaryLoading,
+    salesTxnLoading,
+    stmtLoading,
+    tbLoading,
+    trialBalance,
+    dailyLoading,
+  ]);
 
-  const rowsOrEmpty = (rows, columns) => (rows.length ? rows : [Array(columns).fill("-")]);
+  const activeReportMeta = reportCatalog[activeReport] || reportCatalog.holding;
+  const appliedFilterCount = [
+    customerIdParam,
+    gasCodeParam,
+    cylinderNumberParam,
+    dateFromParam,
+    dateToParam,
+    activeReport === "daily" ? filters.date : null,
+    searchParams.get("filter"),
+  ].filter(Boolean).length;
+  const activeRecordCount = reportSections.reduce((sum, section) => sum + section.rows.length, 0);
 
   const handlePrint = () => window.print();
 
-  const handleExportPDF = () => {
-    switch (activeReport) {
-      case "holding":
-        if (holdingData) generateHoldingPDF(holdingData);
-        break;
-      case "daily":
-        if (dailyData) generateDailyReportPDF(dailyData);
-        break;
-      case "customer-stmt":
-        if (customerStmt) generateCustomerStatementPDF(customerStmt);
-        break;
-      case "trial-balance":
-        if (trialBalance) generateTrialBalancePDF(trialBalance);
-        break;
-      case "cylinder-rotation": {
-        const rows = (cylinderRotation || []).flatMap((group) =>
-          (group.history || []).map((h) => [
-            group.cylinderNumber || "-",
-            `${h.customerCode || "-"} - ${h.customerName || "-"}`,
-            formatDate(h.issuedAt),
-            h.returnedAt ? formatDate(h.returnedAt) : "-",
-            h.holdDays ?? "-",
-          ]),
-        );
-        generateTablePDF("Cylinder Rotation", ["Cylinder", "Customer", "Issue Date", "Return Date", "Days Held"], rowsOrEmpty(rows, 5), "l");
-        break;
-      }
-      case "sale-txn": {
-        const rows = (saleTransactions || []).map((t) => [
-          t.billNumber || "-",
-          formatDate(t.billDate),
-          t.customer?.name || "-",
-          t.cylinderNumber || "-",
-          t.gasCode || "-",
-          t.quantityCum ?? "-",
-        ]);
-        generateTablePDF("Sale Transactions", ["Bill Number", "Date", "Customer", "Cylinder", "Gas", "Cu.M"], rowsOrEmpty(rows, 6), "l");
-        break;
-      }
-      case "outstanding": {
-        const rows = (outstandingData || []).map((r) => [
-          `${r.partyCode || "-"} - ${r.partyName || "-"}`,
-          formatINR(r.debit || 0),
-          formatINR(r.credit || 0),
-          `${formatINR(Math.abs(r.balance || 0))} ${r.balance > 0 ? "Dr" : "Cr"}`,
-          r.type || "-",
-        ]);
-        generateTablePDF("Outstanding Payments", ["Party", "Debit", "Credit", "Balance", "Type"], rowsOrEmpty(rows, 5), "l");
-        break;
-      }
-      case "sales-summary": {
-        const rows = [
-          ...(salesSummary?.byGas || []).map((r) => ["Gas Type", r.gasCode || "-", countValue(r.count), r.totalCum ?? 0]),
-          ...(salesSummary?.byCustomer || []).map((r) => ["Customer", `${r?.code || "-"} - ${r?.name || "-"}`, countValue(r?.count), r?.totalCum ?? 0]),
-          ["Total", "Bills", salesSummary?.totalBills || 0, "-"],
-        ];
-        generateTablePDF("Sales Summary", ["Section", "Name", "Bills", "Total Cu.M"], rowsOrEmpty(rows, 4), "l");
-        break;
-      }
-      case "party-rental": {
-        const rows = (partyRental || []).map((r) => [
-          `${r.partyCode || "-"} - ${r.partyName || "-"}`,
-          r.count || 0,
-          r.totalDays || 0,
-          formatINR(r.totalRent || 0),
-        ]);
-        generateTablePDF("Party Wise Rental", ["Party", "Total Cylinders Returned", "Total Days", "Total Rent Owed"], rowsOrEmpty(rows, 4), "l");
-        break;
-      }
-      case "cash-book": {
-        const rows = (cashBook || []).map((e) => [
-          e.voucherNumber || "-",
-          formatDate(e.voucherDate),
-          e.customer?.name || e.partyCode || "-",
-          e.particular || "-",
-          e.debitAmount ? formatINR(e.debitAmount) : "-",
-          e.creditAmount ? formatINR(e.creditAmount) : "-",
-          formatINR(e.runningBalance || 0),
-        ]);
-        generateTablePDF("Cash Book", ["Voucher No", "Date", "Party", "Particular", "Debit", "Credit", "Running Balance"], rowsOrEmpty(rows, 7), "l");
-        break;
-      }
-      case "bank-book": {
-        const rows = (bankBook || []).map((e) => [
-          e.voucherNumber || "-",
-          formatDate(e.voucherDate),
-          e.customer?.name || e.partyCode || "-",
-          e.particular || "-",
-          e.debitAmount ? formatINR(e.debitAmount) : "-",
-          e.creditAmount ? formatINR(e.creditAmount) : "-",
-          formatINR(e.runningBalance || 0),
-        ]);
-        generateTablePDF("Bank Book", ["Voucher No", "Date", "Party", "Particular", "Debit", "Credit", "Running Balance"], rowsOrEmpty(rows, 7), "l");
-        break;
-      }
-      case "journal-book": {
-        const rows = (journalBook || []).map((e) => [
-          e.voucherNumber || "-",
-          formatDate(e.voucherDate),
-          e.customer?.name || e.partyCode || "-",
-          (e.transactionType || "-").replace(/_/g, " "),
-          e.particular || "-",
-          e.debitAmount ? formatINR(e.debitAmount) : "-",
-          e.creditAmount ? formatINR(e.creditAmount) : "-",
-        ]);
-        generateTablePDF("Journal Book", ["Voucher No", "Date", "Party", "Type", "Particular", "Debit", "Credit"], rowsOrEmpty(rows, 7), "l");
-        break;
-      }
-      case "reconciliation": {
-        const rows = (reconciliationData?.mismatches || []).map((r) => [
-          `${r.customerCode} - ${r.customerName}`,
-          r.gasCode || "-",
-          r.ownerCode || "-",
-          r.issued,
-          r.returned,
-          r.balance,
-          r.activeHoldings,
-          r.delta,
-        ]);
-        generateTablePDF("Reconciliation — Mismatches", ["Customer", "Gas", "Owner", "Issued", "Returned", "Balance", "Holdings", "Delta"], rowsOrEmpty(rows, 8), "l");
-        break;
-      }
-      default:
-        console.warn("No PDF generator for this report");
+  const reportExportParams = {
+    customerId: customerIdParam,
+    gasCode: gasCodeParam,
+    cylinderNumber: cylinderNumberParam,
+    dateFrom: dateFromParam,
+    dateTo: dateToParam,
+    date: activeReport === "daily" ? filters.date : undefined,
+    filter: searchParams.get("filter") || undefined,
+  };
+
+  const handleExportPdf = async () => {
+    try {
+      await generateReportPDF(
+        activeReport,
+        reportExportParams,
+        `${activeReportMeta.title.toLowerCase().replace(/\s+/g, "-")}.pdf`
+      );
+    } catch (error) {
+      toast.error(error.message || "Failed to export report PDF");
     }
   };
+
+  const handleExportCsv = () => {
+    const exportColumns = [];
+    reportSections.forEach((section) => {
+      section.columns.forEach((column) => {
+        if (!exportColumns.some((item) => item.key === column.key)) {
+          exportColumns.push({ key: column.key, label: column.label });
+        }
+      });
+    });
+    if (!exportColumns.length) return;
+
+    const rows = reportSections.flatMap((section) =>
+      section.rows.map((row) => ({
+        ...(reportSections.length > 1 ? { section: section.title } : {}),
+        ...row,
+      }))
+    );
+
+    const columns = reportSections.length > 1 ? [{ key: "section", label: "Section" }, ...exportColumns] : exportColumns;
+    downloadCsv(`${activeReportMeta.title.toLowerCase().replace(/\s+/g, "-")}.csv`, columns, rows);
+  };
+
+  const handleReportChange = (nextReport) => {
+    setActiveReport(nextReport);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("tab", nextReport);
+    if (nextReport !== "holding") nextParams.delete("filter");
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  const needsCustomer = activeReport === "customer-stmt" && !customerIdParam;
 
   return (
     <div className="page-shell" data-testid="reports-page">
@@ -292,17 +816,38 @@ export default function ReportsPage() {
         <div className="page-eyebrow">Reports and controls</div>
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <h1 className="page-title">Reports that stay easy to scan under pressure.</h1>
+            <h1 className="page-title">Reports now stay focused around one question at a time.</h1>
             <p className="page-subtitle">
-              Switch report types quickly, apply only the filters needed, then print or export without leaving the page.
+              Pick the report, apply only the necessary filters, then print or export a clean CSV without leaving the page.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <Button variant="outline" size="sm" onClick={handlePrint} className="no-print border-white/20 bg-white/10 text-white hover:bg-white/15 hover:text-white">
-              <Printer className="mr-1 h-3.5 w-3.5" /> Print
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePrint}
+              className="no-print border-white/20 bg-white/10 text-white hover:bg-white/15 hover:text-white"
+            >
+              <Printer className="mr-1 h-3.5 w-3.5" />
+              Print
             </Button>
-            <Button variant="outline" size="sm" onClick={handleExportPDF} className="no-print border-white/20 bg-white/10 text-white hover:bg-white/15 hover:text-white">
-              <Download className="mr-1 h-3.5 w-3.5" /> Export PDF
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportPdf}
+              className="no-print border-white/20 bg-white/10 text-white hover:bg-white/15 hover:text-white"
+            >
+              <Download className="mr-1 h-3.5 w-3.5" />
+              Export PDF
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportCsv}
+              className="no-print border-white/20 bg-white/10 text-white hover:bg-white/15 hover:text-white"
+            >
+              <Download className="mr-1 h-3.5 w-3.5" />
+              Export CSV
             </Button>
           </div>
         </div>
@@ -313,648 +858,169 @@ export default function ReportsPage() {
           <SearchCheck className="h-4 w-4 text-amber-600" />
           Report selector
         </div>
-        <Tabs value={activeReport} onValueChange={setActiveReport}>
-        <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-2xl bg-slate-100 p-1.5">
-          <TabsTrigger value="holding" data-testid="report-tab-holding">Holding Statement</TabsTrigger>
-          <TabsTrigger value="daily" data-testid="report-tab-daily">Daily Report</TabsTrigger>
-          <TabsTrigger value="customer-stmt" data-testid="report-tab-customer-stmt">Customer Statement</TabsTrigger>
-          <TabsTrigger value="trial-balance" data-testid="report-tab-trial-balance">Trial Balance</TabsTrigger>
-          <TabsTrigger value="cylinder-rotation" data-testid="report-tab-cylinder-rotation">Cylinder Rotation</TabsTrigger>
-          <TabsTrigger value="sale-txn" data-testid="report-tab-sale-txn">Sale Transactions</TabsTrigger>
-          <TabsTrigger value="outstanding" data-testid="report-tab-outstanding">Outstanding Payments</TabsTrigger>
-          <TabsTrigger value="sales-summary" data-testid="report-tab-sales-summary">Sales Summary</TabsTrigger>
-          <TabsTrigger value="party-rental" data-testid="report-tab-party-rental">Party Wise Rental</TabsTrigger>
-          <TabsTrigger value="cash-book" data-testid="report-tab-cash-book">Cash Book</TabsTrigger>
-          <TabsTrigger value="bank-book" data-testid="report-tab-bank-book">Bank Book</TabsTrigger>
-          <TabsTrigger value="journal-book" data-testid="report-tab-journal-book">Journal Book</TabsTrigger>
-          <TabsTrigger value="reconciliation" data-testid="report-tab-reconciliation">Reconciliation</TabsTrigger>
-        </TabsList>
+        <Tabs value={activeReport} onValueChange={handleReportChange}>
+          <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-2xl bg-slate-100 p-1.5">
+            {reportTabs.map(([value, label]) => (
+              <TabsTrigger key={value} value={value} data-testid={`report-tab-${value}`}>
+                {label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
         </Tabs>
       </div>
 
-      {/* Filters */}
-      <div className="filter-panel no-print">
-        <div className="mb-3 text-sm font-medium text-slate-700">Filters</div>
-        <div className="flex flex-wrap items-end gap-3">
-        {(activeReport === "holding" || activeReport === "customer-stmt" || activeReport === "sale-txn" || activeReport === "party-rental" || activeReport === "reconciliation") && (
-          <div>
-            <Label className="text-xs">Customer</Label>
-            <Select value={filters.customerId} onValueChange={(v) => setFilters({ ...filters, customerId: v })}>
-              <SelectTrigger className="h-9 w-52 mt-1" data-testid="report-customer-filter"><SelectValue placeholder="All customers" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All</SelectItem>
-                {(customers?.data || []).map(c => <SelectItem key={c.id} value={String(c.id)}>{c.code} - {c.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_320px] no-print">
+        <div className="filter-panel">
+          <div className="mb-3 text-sm font-medium text-slate-700">Filters</div>
+          <div className="flex flex-wrap items-end gap-3">
+            {(activeReport === "holding" || activeReport === "customer-stmt" || activeReport === "sale-txn" || activeReport === "party-rental" || activeReport === "reconciliation") && (
+              <div>
+                <Label className="text-xs">Customer</Label>
+                <Select value={filters.customerId} onValueChange={(value) => setFilters((current) => ({ ...current, customerId: value }))}>
+                  <SelectTrigger className="mt-1 h-9 w-52" data-testid="report-customer-filter">
+                    <SelectValue placeholder="All customers" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    {(customers?.data || []).map((customer) => (
+                      <SelectItem key={customer.id} value={String(customer.id)}>
+                        {customer.code} - {customer.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {(activeReport === "holding" || activeReport === "cylinder-rotation" || activeReport === "sale-txn" || activeReport === "reconciliation") && (
+              <div>
+                <Label className="text-xs">Gas Type</Label>
+                <Select value={filters.gasCode} onValueChange={(value) => setFilters((current) => ({ ...current, gasCode: value }))}>
+                  <SelectTrigger className="mt-1 h-9 w-40">
+                    <SelectValue placeholder="All" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    {(gasTypes || []).map((gas) => (
+                      <SelectItem key={gas.gasCode} value={gas.gasCode}>
+                        {gas.gasCode} - {gas.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {activeReport === "cylinder-rotation" && (
+              <div>
+                <Label htmlFor="report-cylinder-number" className="text-xs">Cylinder Number</Label>
+                <Input
+                  id="report-cylinder-number"
+                  name="cylinderNumber"
+                  value={filters.cylinderNumber}
+                  onChange={(event) => setFilters((current) => ({ ...current, cylinderNumber: event.target.value }))}
+                  className="mt-1 h-9 w-48"
+                  placeholder="Search cylinder"
+                />
+              </div>
+            )}
+
+            {activeReport === "daily" && (
+              <div>
+                <Label htmlFor="report-date" className="text-xs">Date</Label>
+                <Input
+                  id="report-date"
+                  name="date"
+                  type="date"
+                  value={filters.date}
+                  onChange={(event) => setFilters((current) => ({ ...current, date: event.target.value }))}
+                  className="mt-1 h-9 w-40"
+                />
+              </div>
+            )}
+
+            {(activeReport === "customer-stmt" ||
+              activeReport === "trial-balance" ||
+              activeReport === "sale-txn" ||
+              activeReport === "sales-summary" ||
+              activeReport === "party-rental" ||
+              activeReport === "cash-book" ||
+              activeReport === "bank-book" ||
+              activeReport === "journal-book") && (
+              <>
+                <div>
+                  <Label htmlFor="report-date-from" className="text-xs">From</Label>
+                  <Input
+                    id="report-date-from"
+                    name="dateFrom"
+                    type="date"
+                    value={filters.dateFrom}
+                    onChange={(event) => setFilters((current) => ({ ...current, dateFrom: event.target.value }))}
+                    className="mt-1 h-9 w-40"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="report-date-to" className="text-xs">To</Label>
+                  <Input
+                    id="report-date-to"
+                    name="dateTo"
+                    type="date"
+                    value={filters.dateTo}
+                    onChange={(event) => setFilters((current) => ({ ...current, dateTo: event.target.value }))}
+                    className="mt-1 h-9 w-40"
+                  />
+                </div>
+              </>
+            )}
           </div>
-        )}
-        {(activeReport === "holding" || activeReport === "cylinder-rotation" || activeReport === "sale-txn" || activeReport === "reconciliation") && (
-          <div>
-            <Label className="text-xs">Gas Type</Label>
-            <Select value={filters.gasCode} onValueChange={(v) => setFilters({ ...filters, gasCode: v })}>
-              <SelectTrigger className="h-9 w-40 mt-1"><SelectValue placeholder="All" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All</SelectItem>
-                {(gasTypes || []).map(g => <SelectItem key={g.gasCode} value={g.gasCode}>{g.gasCode} - {g.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-        {activeReport === "cylinder-rotation" && (
-          <div>
-            <Label className="text-xs">Cylinder Number</Label>
-            <Input
-              value={filters.cylinderNumber}
-              onChange={(e) => setFilters({ ...filters, cylinderNumber: e.target.value })}
-              className="h-9 mt-1 w-48"
-              placeholder="Search cylinder"
-            />
-          </div>
-        )}
-        {activeReport === "daily" && (
-          <div>
-            <Label className="text-xs">Date</Label>
-            <Input type="date" value={filters.date} onChange={(e) => setFilters({ ...filters, date: e.target.value })} className="h-9 mt-1 w-40" />
-          </div>
-        )}
-        {(activeReport === "customer-stmt" || activeReport === "trial-balance" || activeReport === "sale-txn" || activeReport === "sales-summary" || activeReport === "party-rental" || activeReport === "cash-book" || activeReport === "bank-book" || activeReport === "journal-book") && (
-          <>
-            <div><Label className="text-xs">From</Label><Input type="date" value={filters.dateFrom} onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })} className="h-9 mt-1 w-40" /></div>
-            <div><Label className="text-xs">To</Label><Input type="date" value={filters.dateTo} onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })} className="h-9 mt-1 w-40" /></div>
-          </>
-        )}
         </div>
+
+        <SummaryPanel
+          title={activeReportMeta.title}
+          description={activeReportMeta.description}
+          tone="blue"
+          rows={[
+            { label: "Sections", value: reportSections.length || 0 },
+            { label: "Visible rows", value: activeRecordCount },
+            { label: "Applied filters", value: appliedFilterCount },
+          ]}
+        />
       </div>
 
-      {/* Holding Statement */}
-      {activeReport === "holding" && (
-        <Card className="border border-slate-200 shadow-sm">
-          <CardHeader className="pb-2"><CardTitle className="text-base" style={{ fontFamily: 'var(--font-heading)' }}>Holding Statement{searchParams.get("filter") === "overdue" ? " - Overdue Cylinders" : ""}</CardTitle></CardHeader>
-          <CardContent>
-            {holdingLoading ? <div className="py-8 text-center text-slate-400">Loading...</div> :
-              !holdingData?.length ? <div className="py-8 text-center text-slate-400">No holdings found</div> :
-              holdingData.map(group => (
-                <div key={group.customerCode} className="mb-6">
-                  <div className="font-semibold text-slate-800 mb-2">{group.customerCode} - {group.customerName} ({group.cylinders.length} cylinders)</div>
-                  <table className="w-full text-sm border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 border-y border-slate-200 text-xs uppercase tracking-wider text-slate-600 font-semibold">
-                        <th className="px-3 py-1.5">Cylinder</th><th className="px-3 py-1.5">Gas</th><th className="px-3 py-1.5">Owner</th>
-                        <th className="px-3 py-1.5">Issued</th><th className="px-3 py-1.5">Bill No</th><th className="px-3 py-1.5 text-right">Days</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {group.cylinders.map((c, i) => (
-                        <tr key={i} className={`border-b border-slate-100 ${c.isOverdue ? "bg-red-50" : ""}`}>
-                          <td className="px-3 py-1.5 font-mono text-xs">{c.cylinderNumber}</td>
-                          <td className="px-3 py-1.5">{c.gasCode}</td>
-                          <td className="px-3 py-1.5">{c.ownerCode}</td>
-                          <td className="px-3 py-1.5">{formatDate(c.issuedAt)}</td>
-                          <td className="px-3 py-1.5 font-mono text-xs">{c.billNumber || "-"}</td>
-                          <td className={`px-3 py-1.5 text-right font-medium ${c.isOverdue ? "text-red-600" : ""}`}>{c.holdDays}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ))
-            }
-          </CardContent>
-        </Card>
-      )}
+      {activeReport === "reconciliation" && reconciliationData?.summary ? (
+        <section className="stats-grid">
+          <div className="stat-card text-left">
+            <div className="metric-meta">Total Groups</div>
+            <div className="metric-value mt-3">{reconciliationData.summary.totalGroups || 0}</div>
+          </div>
+          <div className="stat-card text-left">
+            <div className="metric-meta">Reconciled</div>
+            <div className="metric-value mt-3">{reconciliationData.summary.reconciledCount || 0}</div>
+          </div>
+          <div className="stat-card text-left">
+            <div className="metric-meta">Mismatches</div>
+            <div className="metric-value mt-3">{reconciliationData.summary.mismatchCount || 0}</div>
+          </div>
+          <div className="stat-card text-left">
+            <div className="metric-meta">Missing ECR</div>
+            <div className="metric-value mt-3">{reconciliationData.summary.missingEcrCount || 0}</div>
+          </div>
+        </section>
+      ) : null}
 
-      {/* Daily Report */}
-      {activeReport === "daily" && (
-        <Card className="border border-slate-200 shadow-sm">
-          <CardHeader className="pb-2"><CardTitle className="text-base" style={{ fontFamily: 'var(--font-heading)' }}>Daily Report - {formatDate(dailyData?.date)}</CardTitle></CardHeader>
-          <CardContent>
-            {dailyLoading ? <div className="py-8 text-center text-slate-400">Loading...</div> : (
-              <div className="space-y-6">
-                <div>
-                  <h3 className="font-semibold mb-2 text-green-700">Issues ({dailyData?.issues?.length || 0})</h3>
-                  <table className="w-full text-sm border-collapse">
-                    <thead><tr className="bg-slate-50 border-y border-slate-200 text-xs uppercase tracking-wider text-slate-600 font-semibold">
-                      <th className="px-3 py-1.5">Bill No</th><th className="px-3 py-1.5">Customer</th><th className="px-3 py-1.5">Cylinder</th><th className="px-3 py-1.5">Gas</th>
-                    </tr></thead>
-                    <tbody>
-                      {(dailyData?.issues || []).map(t => (
-                        <tr key={t.id} className="border-b border-slate-100"><td className="px-3 py-1.5 font-mono text-xs">{t.billNumber}</td><td className="px-3 py-1.5">{t.customer?.name}</td><td className="px-3 py-1.5 font-mono text-xs">{t.cylinderNumber}</td><td className="px-3 py-1.5">{t.gasCode}</td></tr>
-                      ))}
-                      {!dailyData?.issues?.length && <tr><td colSpan={4} className="px-3 py-4 text-center text-slate-400">No issues</td></tr>}
-                    </tbody>
-                  </table>
-                </div>
-                <div>
-                  <h3 className="font-semibold mb-2 text-blue-700">Returns ({dailyData?.returns?.length || 0})</h3>
-                  <table className="w-full text-sm border-collapse">
-                    <thead><tr className="bg-slate-50 border-y border-slate-200 text-xs uppercase tracking-wider text-slate-600 font-semibold">
-                      <th className="px-3 py-1.5">ECR No</th><th className="px-3 py-1.5">Customer</th><th className="px-3 py-1.5">Cylinder</th><th className="px-3 py-1.5">Days</th><th className="px-3 py-1.5">Rent</th>
-                    </tr></thead>
-                    <tbody>
-                      {(dailyData?.returns || []).map(e => (
-                        <tr key={e.id} className="border-b border-slate-100"><td className="px-3 py-1.5 font-mono text-xs">{e.ecrNumber}</td><td className="px-3 py-1.5">{e.customer?.name}</td><td className="px-3 py-1.5 font-mono text-xs">{e.cylinderNumber}</td><td className="px-3 py-1.5">{e.holdDays}</td><td className="px-3 py-1.5">{formatINR(e.rentAmount)}</td></tr>
-                      ))}
-                      {!dailyData?.returns?.length && <tr><td colSpan={5} className="px-3 py-4 text-center text-slate-400">No returns</td></tr>}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Customer Statement */}
-      {activeReport === "customer-stmt" && (
-        <Card className="border border-slate-200 shadow-sm">
-          <CardHeader className="pb-2"><CardTitle className="text-base" style={{ fontFamily: 'var(--font-heading)' }}>Customer Statement {customerStmt?.customer ? `- ${customerStmt.customer.name}` : ""}</CardTitle></CardHeader>
-          <CardContent>
-            {!filters.customerId ? <div className="py-8 text-center text-slate-400">Select a customer</div> :
-              stmtLoading ? <div className="py-8 text-center text-slate-400">Loading...</div> : (
-              <div className="space-y-4">
-                <div><h3 className="font-semibold mb-1">Issues ({customerStmt?.issues?.length || 0})</h3>
-                  <table className="w-full text-sm border-collapse"><thead><tr className="bg-slate-50 border-y border-slate-200 text-xs uppercase tracking-wider text-slate-600 font-semibold"><th className="px-3 py-1.5">Bill No</th><th className="px-3 py-1.5">Date</th><th className="px-3 py-1.5">Cylinder</th><th className="px-3 py-1.5">Gas</th></tr></thead>
-                    <tbody>{(customerStmt?.issues || []).map(t => (<tr key={t.id} className="border-b border-slate-100"><td className="px-3 py-1.5 font-mono text-xs">{t.billNumber}</td><td className="px-3 py-1.5">{formatDate(t.billDate)}</td><td className="px-3 py-1.5 font-mono text-xs">{t.cylinderNumber}</td><td className="px-3 py-1.5">{t.gasCode}</td></tr>))}</tbody></table>
-                </div>
-                <div><h3 className="font-semibold mb-1">Returns ({customerStmt?.returns?.length || 0})</h3>
-                  <table className="w-full text-sm border-collapse"><thead><tr className="bg-slate-50 border-y border-slate-200 text-xs uppercase tracking-wider text-slate-600 font-semibold"><th className="px-3 py-1.5">ECR No</th><th className="px-3 py-1.5">Date</th><th className="px-3 py-1.5">Cylinder</th><th className="px-3 py-1.5">Days</th><th className="px-3 py-1.5">Rent</th></tr></thead>
-                    <tbody>{(customerStmt?.returns || []).map(e => (<tr key={e.id} className="border-b border-slate-100"><td className="px-3 py-1.5 font-mono text-xs">{e.ecrNumber}</td><td className="px-3 py-1.5">{formatDate(e.ecrDate)}</td><td className="px-3 py-1.5 font-mono text-xs">{e.cylinderNumber}</td><td className="px-3 py-1.5">{e.holdDays}</td><td className="px-3 py-1.5">{formatINR(e.rentAmount)}</td></tr>))}</tbody></table>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Trial Balance */}
-      {activeReport === "trial-balance" && (
-        <Card className="border border-slate-200 shadow-sm">
-          <CardHeader className="pb-2"><CardTitle className="text-base" style={{ fontFamily: 'var(--font-heading)' }}>Trial Balance</CardTitle></CardHeader>
-          <CardContent>
-            {tbLoading ? <div className="py-8 text-center text-slate-400">Loading...</div> :
-              <table className="w-full text-sm border-collapse">
-                <thead><tr className="bg-slate-50 border-y border-slate-200 text-xs uppercase tracking-wider text-slate-600 font-semibold">
-                  <th className="px-3 py-1.5">Party Code</th><th className="px-3 py-1.5">Name</th><th className="px-3 py-1.5 text-right">Debit</th><th className="px-3 py-1.5 text-right">Credit</th><th className="px-3 py-1.5 text-right">Balance</th>
-                </tr></thead>
-                <tbody>
-                  {(trialBalance || []).map((r, i) => (
-                    <tr key={i} className="border-b border-slate-100"><td className="px-3 py-1.5 font-mono text-xs">{r.partyCode || "-"}</td><td className="px-3 py-1.5">{r.partyName}</td><td className="px-3 py-1.5 text-right">{formatINR(r.debit)}</td><td className="px-3 py-1.5 text-right">{formatINR(r.credit)}</td><td className={`px-3 py-1.5 text-right font-medium ${r.balance > 0 ? "text-red-600" : "text-green-600"}`}>{formatINR(Math.abs(r.balance))} {r.balance > 0 ? "Dr" : "Cr"}</td></tr>
-                  ))}
-                  {!trialBalance?.length && <tr><td colSpan={5} className="px-3 py-4 text-center text-slate-400">No entries</td></tr>}
-                </tbody>
-              </table>
-            }
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Cylinder Rotation */}
-      {activeReport === "cylinder-rotation" && (
-        <Card className="border border-slate-200 shadow-sm">
-          <CardHeader className="pb-2"><CardTitle className="text-base" style={{ fontFamily: "var(--font-heading)" }}>Cylinder Rotation</CardTitle></CardHeader>
-          <CardContent>
-            {rotationLoading ? <div className="py-8 text-center text-slate-400">Loading...</div> :
-              !cylinderRotation?.length ? <div className="py-8 text-center text-slate-400">No cylinder rotation records</div> :
-                cylinderRotation.map((group) => (
-                  <div key={group.cylinderNumber} className="mb-6">
-                    <div className="font-semibold text-slate-800 mb-2">
-                      {group.cylinderNumber} - {group.gasCode || "-"}
-                    </div>
-                    <table className="w-full text-sm border-collapse">
-                      <thead>
-                        <tr className="bg-slate-50 border-y border-slate-200 text-xs uppercase tracking-wider text-slate-600 font-semibold">
-                          <th className="px-3 py-1.5">Customer</th>
-                          <th className="px-3 py-1.5">Issue Date</th>
-                          <th className="px-3 py-1.5">Return Date</th>
-                          <th className="px-3 py-1.5 text-right">Days Held</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(group.history || []).map((h, idx) => (
-                          <tr key={idx} className="border-b border-slate-100">
-                            <td className="px-3 py-1.5">{h.customerCode} - {h.customerName}</td>
-                            <td className="px-3 py-1.5">{formatDate(h.issuedAt)}</td>
-                            <td className="px-3 py-1.5">{h.returnedAt ? formatDate(h.returnedAt) : "-"}</td>
-                            <td className="px-3 py-1.5 text-right font-medium">{h.holdDays ?? "-"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ))
-            }
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Sale Transactions */}
-      {activeReport === "sale-txn" && (
-        <Card className="border border-slate-200 shadow-sm">
-          <CardHeader className="pb-2"><CardTitle className="text-base" style={{ fontFamily: "var(--font-heading)" }}>Sale Transactions</CardTitle></CardHeader>
-          <CardContent>
-            {salesTxnLoading ? <div className="py-8 text-center text-slate-400">Loading...</div> :
-              <table className="w-full text-sm border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 border-y border-slate-200 text-xs uppercase tracking-wider text-slate-600 font-semibold">
-                    <th className="px-3 py-1.5">Bill Number</th>
-                    <th className="px-3 py-1.5">Date</th>
-                    <th className="px-3 py-1.5">Customer</th>
-                    <th className="px-3 py-1.5">Cylinder</th>
-                    <th className="px-3 py-1.5">Gas</th>
-                    <th className="px-3 py-1.5 text-right">Cu.M</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(saleTransactions || []).map((t) => (
-                    <tr key={t.id} className="border-b border-slate-100">
-                      <td className="px-3 py-1.5 font-mono text-xs">{t.billNumber}</td>
-                      <td className="px-3 py-1.5">{formatDate(t.billDate)}</td>
-                      <td className="px-3 py-1.5">{t.customer?.name || "-"}</td>
-                      <td className="px-3 py-1.5 font-mono text-xs">{t.cylinderNumber || "-"}</td>
-                      <td className="px-3 py-1.5">{t.gasCode || "-"}</td>
-                      <td className="px-3 py-1.5 text-right">{t.quantityCum ?? "-"}</td>
-                    </tr>
-                  ))}
-                  {!saleTransactions?.length && <tr><td colSpan={6} className="px-3 py-4 text-center text-slate-400">No transactions</td></tr>}
-                </tbody>
-              </table>
-            }
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Outstanding Payments */}
-      {activeReport === "outstanding" && (
-        <Card className="border border-slate-200 shadow-sm">
-          <CardHeader className="pb-2"><CardTitle className="text-base" style={{ fontFamily: "var(--font-heading)" }}>Outstanding Payments</CardTitle></CardHeader>
-          <CardContent>
-            {outstandingLoading ? <div className="py-8 text-center text-slate-400">Loading...</div> :
-              <table className="w-full text-sm border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 border-y border-slate-200 text-xs uppercase tracking-wider text-slate-600 font-semibold">
-                    <th className="px-3 py-1.5">Party</th>
-                    <th className="px-3 py-1.5 text-right">Debit</th>
-                    <th className="px-3 py-1.5 text-right">Credit</th>
-                    <th className="px-3 py-1.5 text-right">Balance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(outstandingData || []).map((r) => (
-                    <tr key={r.partyCode} className={`border-b border-slate-100 ${r.type === "RECEIVABLE" ? "bg-amber-50" : "bg-emerald-50"}`}>
-                      <td className="px-3 py-1.5">{r.partyCode} - {r.partyName}</td>
-                      <td className="px-3 py-1.5 text-right">{formatINR(r.debit)}</td>
-                      <td className="px-3 py-1.5 text-right">{formatINR(r.credit)}</td>
-                      <td className={`px-3 py-1.5 text-right font-semibold ${r.type === "RECEIVABLE" ? "text-amber-700" : "text-emerald-700"}`}>
-                        {formatINR(Math.abs(r.balance))} {r.balance > 0 ? "Dr" : "Cr"}
-                      </td>
-                    </tr>
-                  ))}
-                  {!outstandingData?.length && <tr><td colSpan={4} className="px-3 py-4 text-center text-slate-400">No outstanding balances</td></tr>}
-                </tbody>
-              </table>
-            }
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Sales Summary */}
-      {activeReport === "sales-summary" && (
-        <Card className="border border-slate-200 shadow-sm">
-          <CardHeader className="pb-2"><CardTitle className="text-base" style={{ fontFamily: "var(--font-heading)" }}>Sales Summary</CardTitle></CardHeader>
-          <CardContent>
-            {salesSummaryLoading ? <div className="py-8 text-center text-slate-400">Loading...</div> : (
-              <div className="space-y-5">
-                <div className="inline-flex items-center gap-2 bg-slate-100 text-slate-800 px-3 py-2 rounded-md text-sm font-medium">
-                  Total Bills: {salesSummary?.totalBills || 0}
-                </div>
-
-                <div>
-                  <h3 className="font-semibold mb-2 text-slate-800">By Gas Type</h3>
-                  <table className="w-full text-sm border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 border-y border-slate-200 text-xs uppercase tracking-wider text-slate-600 font-semibold">
-                        <th className="px-3 py-1.5">Gas</th>
-                        <th className="px-3 py-1.5 text-right">Bills</th>
-                        <th className="px-3 py-1.5 text-right">Total Cu.M</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(salesSummary?.byGas || []).map((r) => (
-                        <tr key={r.gasCode || "NA"} className="border-b border-slate-100">
-                          <td className="px-3 py-1.5">{r.gasCode || "-"}</td>
-                          <td className="px-3 py-1.5 text-right">{countValue(r.count)}</td>
-                          <td className="px-3 py-1.5 text-right">{r.totalCum ?? 0}</td>
-                        </tr>
-                      ))}
-                      {!salesSummary?.byGas?.length && <tr><td colSpan={3} className="px-3 py-4 text-center text-slate-400">No gas summary</td></tr>}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div>
-                  <h3 className="font-semibold mb-2 text-slate-800">By Customer</h3>
-                  <table className="w-full text-sm border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 border-y border-slate-200 text-xs uppercase tracking-wider text-slate-600 font-semibold">
-                        <th className="px-3 py-1.5">Customer</th>
-                        <th className="px-3 py-1.5 text-right">Bills</th>
-                        <th className="px-3 py-1.5 text-right">Total Cu.M</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(salesSummary?.byCustomer || []).map((r, idx) => (
-                        <tr key={`${r?.code || "NA"}-${idx}`} className="border-b border-slate-100">
-                          <td className="px-3 py-1.5">{r?.code || "-"} - {r?.name || "-"}</td>
-                          <td className="px-3 py-1.5 text-right">{countValue(r?.count)}</td>
-                          <td className="px-3 py-1.5 text-right">{r?.totalCum ?? 0}</td>
-                        </tr>
-                      ))}
-                      {!salesSummary?.byCustomer?.length && <tr><td colSpan={3} className="px-3 py-4 text-center text-slate-400">No customer summary</td></tr>}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Party Wise Rental */}
-      {activeReport === "party-rental" && (
-        <Card className="border border-slate-200 shadow-sm">
-          <CardHeader className="pb-2"><CardTitle className="text-base" style={{ fontFamily: "var(--font-heading)" }}>Party Wise Rental</CardTitle></CardHeader>
-          <CardContent>
-            {partyRentalLoading ? <div className="py-8 text-center text-slate-400">Loading...</div> :
-              <table className="w-full text-sm border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 border-y border-slate-200 text-xs uppercase tracking-wider text-slate-600 font-semibold">
-                    <th className="px-3 py-1.5">Party</th>
-                    <th className="px-3 py-1.5 text-right">Total Cylinders Returned</th>
-                    <th className="px-3 py-1.5 text-right">Total Days</th>
-                    <th className="px-3 py-1.5 text-right">Total Rent Owed</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(partyRental || []).map((r) => (
-                    <tr key={r.partyCode} className="border-b border-slate-100">
-                      <td className="px-3 py-1.5">{r.partyCode} - {r.partyName}</td>
-                      <td className="px-3 py-1.5 text-right">{r.count || 0}</td>
-                      <td className="px-3 py-1.5 text-right">{r.totalDays || 0}</td>
-                      <td className="px-3 py-1.5 text-right font-medium">{formatINR(r.totalRent || 0)}</td>
-                    </tr>
-                  ))}
-                  {!partyRental?.length && <tr><td colSpan={4} className="px-3 py-4 text-center text-slate-400">No rental records</td></tr>}
-                </tbody>
-              </table>
-            }
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Cash Book */}
-      {activeReport === "cash-book" && (
-        <Card className="border border-slate-200 shadow-sm">
-          <CardHeader className="pb-2"><CardTitle className="text-base" style={{ fontFamily: "var(--font-heading)" }}>Cash Book</CardTitle></CardHeader>
-          <CardContent>
-            {cashBookLoading ? <div className="py-8 text-center text-slate-400">Loading...</div> :
-              <table className="w-full text-sm border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 border-y border-slate-200 text-xs uppercase tracking-wider text-slate-600 font-semibold">
-                    <th className="px-3 py-1.5">Voucher No</th>
-                    <th className="px-3 py-1.5">Date</th>
-                    <th className="px-3 py-1.5">Party</th>
-                    <th className="px-3 py-1.5">Particular</th>
-                    <th className="px-3 py-1.5 text-right">Debit</th>
-                    <th className="px-3 py-1.5 text-right">Credit</th>
-                    <th className="px-3 py-1.5 text-right">Running Balance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(cashBook || []).map((e) => (
-                    <tr key={e.id} className="border-b border-slate-100">
-                      <td className="px-3 py-1.5 font-mono text-xs">{e.voucherNumber}</td>
-                      <td className="px-3 py-1.5">{formatDate(e.voucherDate)}</td>
-                      <td className="px-3 py-1.5">{e.customer?.name || e.partyCode || "-"}</td>
-                      <td className="px-3 py-1.5">{e.particular || "-"}</td>
-                      <td className="px-3 py-1.5 text-right">{e.debitAmount ? formatINR(e.debitAmount) : "-"}</td>
-                      <td className="px-3 py-1.5 text-right">{e.creditAmount ? formatINR(e.creditAmount) : "-"}</td>
-                      <td className="px-3 py-1.5 text-right font-medium">{formatINR(e.runningBalance || 0)}</td>
-                    </tr>
-                  ))}
-                  {!cashBook?.length && <tr><td colSpan={7} className="px-3 py-4 text-center text-slate-400">No cash book entries</td></tr>}
-                </tbody>
-              </table>
-            }
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Bank Book */}
-      {activeReport === "bank-book" && (
-        <Card className="border border-slate-200 shadow-sm">
-          <CardHeader className="pb-2"><CardTitle className="text-base" style={{ fontFamily: "var(--font-heading)" }}>Bank Book</CardTitle></CardHeader>
-          <CardContent>
-            {bankBookLoading ? <div className="py-8 text-center text-slate-400">Loading...</div> :
-              <table className="w-full text-sm border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 border-y border-slate-200 text-xs uppercase tracking-wider text-slate-600 font-semibold">
-                    <th className="px-3 py-1.5">Voucher No</th>
-                    <th className="px-3 py-1.5">Date</th>
-                    <th className="px-3 py-1.5">Party</th>
-                    <th className="px-3 py-1.5">Particular</th>
-                    <th className="px-3 py-1.5 text-right">Debit</th>
-                    <th className="px-3 py-1.5 text-right">Credit</th>
-                    <th className="px-3 py-1.5 text-right">Running Balance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(bankBook || []).map((e) => (
-                    <tr key={e.id} className="border-b border-slate-100">
-                      <td className="px-3 py-1.5 font-mono text-xs">{e.voucherNumber}</td>
-                      <td className="px-3 py-1.5">{formatDate(e.voucherDate)}</td>
-                      <td className="px-3 py-1.5">{e.customer?.name || e.partyCode || "-"}</td>
-                      <td className="px-3 py-1.5">{e.particular || "-"}</td>
-                      <td className="px-3 py-1.5 text-right">{e.debitAmount ? formatINR(e.debitAmount) : "-"}</td>
-                      <td className="px-3 py-1.5 text-right">{e.creditAmount ? formatINR(e.creditAmount) : "-"}</td>
-                      <td className="px-3 py-1.5 text-right font-medium">{formatINR(e.runningBalance || 0)}</td>
-                    </tr>
-                  ))}
-                  {!bankBook?.length && <tr><td colSpan={7} className="px-3 py-4 text-center text-slate-400">No bank book entries</td></tr>}
-                </tbody>
-              </table>
-            }
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Journal Book */}
-      {activeReport === "journal-book" && (
-        <Card className="border border-slate-200 shadow-sm">
-          <CardHeader className="pb-2"><CardTitle className="text-base" style={{ fontFamily: "var(--font-heading)" }}>Journal Book</CardTitle></CardHeader>
-          <CardContent>
-            {journalBookLoading ? <div className="py-8 text-center text-slate-400">Loading...</div> :
-              <table className="w-full text-sm border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 border-y border-slate-200 text-xs uppercase tracking-wider text-slate-600 font-semibold">
-                    <th className="px-3 py-1.5">Voucher No</th>
-                    <th className="px-3 py-1.5">Date</th>
-                    <th className="px-3 py-1.5">Party</th>
-                    <th className="px-3 py-1.5">Type</th>
-                    <th className="px-3 py-1.5">Particular</th>
-                    <th className="px-3 py-1.5 text-right">Debit</th>
-                    <th className="px-3 py-1.5 text-right">Credit</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(journalBook || []).map((e) => (
-                    <tr key={e.id} className="border-b border-slate-100">
-                      <td className="px-3 py-1.5 font-mono text-xs">{e.voucherNumber}</td>
-                      <td className="px-3 py-1.5">{formatDate(e.voucherDate)}</td>
-                      <td className="px-3 py-1.5">{e.customer?.name || e.partyCode || "-"}</td>
-                      <td className="px-3 py-1.5">{(e.transactionType || "-").replace(/_/g, " ")}</td>
-                      <td className="px-3 py-1.5">{e.particular || "-"}</td>
-                      <td className="px-3 py-1.5 text-right">{e.debitAmount ? formatINR(e.debitAmount) : "-"}</td>
-                      <td className="px-3 py-1.5 text-right">{e.creditAmount ? formatINR(e.creditAmount) : "-"}</td>
-                    </tr>
-                  ))}
-                  {!journalBook?.length && <tr><td colSpan={7} className="px-3 py-4 text-center text-slate-400">No journal entries</td></tr>}
-                </tbody>
-              </table>
-            }
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Reconciliation */}
-      {activeReport === "reconciliation" && (
-        <Card className="border border-slate-200 shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base" style={{ fontFamily: "var(--font-heading)" }}>Holding Parity / Reconciliation</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {reconciliationLoading ? <div className="py-8 text-center text-slate-400">Loading...</div> : !reconciliationData ? <div className="py-8 text-center text-slate-400">No data</div> : (
-              <div className="space-y-6">
-                {/* Summary */}
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                  <div className="bg-slate-50 rounded-md p-3 text-center">
-                    <div className="text-2xl font-bold text-slate-800">{reconciliationData.summary?.totalGroups || 0}</div>
-                    <div className="text-xs text-slate-500 mt-1">Total Groups</div>
-                  </div>
-                  <div className="bg-green-50 rounded-md p-3 text-center">
-                    <div className="text-2xl font-bold text-green-700">{reconciliationData.summary?.reconciledCount || 0}</div>
-                    <div className="text-xs text-green-600 mt-1">Reconciled</div>
-                  </div>
-                  <div className={`rounded-md p-3 text-center ${reconciliationData.summary?.mismatchCount ? 'bg-red-50' : 'bg-slate-50'}`}>
-                    <div className={`text-2xl font-bold ${reconciliationData.summary?.mismatchCount ? 'text-red-700' : 'text-slate-800'}`}>{reconciliationData.summary?.mismatchCount || 0}</div>
-                    <div className="text-xs text-slate-500 mt-1">Mismatches</div>
-                  </div>
-                  <div className={`rounded-md p-3 text-center ${reconciliationData.summary?.missingEcrCount ? 'bg-amber-50' : 'bg-slate-50'}`}>
-                    <div className={`text-2xl font-bold ${reconciliationData.summary?.missingEcrCount ? 'text-amber-700' : 'text-slate-800'}`}>{reconciliationData.summary?.missingEcrCount || 0}</div>
-                    <div className="text-xs text-slate-500 mt-1">Missing ECR</div>
-                  </div>
-                  <div className={`rounded-md p-3 text-center ${reconciliationData.summary?.duplicateIssueCount ? 'bg-red-50' : 'bg-slate-50'}`}>
-                    <div className={`text-2xl font-bold ${reconciliationData.summary?.duplicateIssueCount ? 'text-red-700' : 'text-slate-800'}`}>{reconciliationData.summary?.duplicateIssueCount || 0}</div>
-                    <div className="text-xs text-slate-500 mt-1">Duplicate Issues</div>
-                  </div>
-                </div>
-
-                {/* Mismatches */}
-                {(reconciliationData.mismatches || []).length > 0 && (
-                  <div>
-                    <h3 className="font-semibold mb-2 text-red-700">⚠ Mismatches ({reconciliationData.mismatches.length})</h3>
-                    <table className="w-full text-sm border-collapse">
-                      <thead>
-                        <tr className="bg-red-50 border-y border-red-200 text-xs uppercase tracking-wider text-red-600 font-semibold">
-                          <th className="px-3 py-1.5">Customer</th>
-                          <th className="px-3 py-1.5">Gas</th>
-                          <th className="px-3 py-1.5">Owner</th>
-                          <th className="px-3 py-1.5 text-right">Issued</th>
-                          <th className="px-3 py-1.5 text-right">Returned</th>
-                          <th className="px-3 py-1.5 text-right">Balance</th>
-                          <th className="px-3 py-1.5 text-right">Active Holdings</th>
-                          <th className="px-3 py-1.5 text-right">Delta</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {reconciliationData.mismatches.map((m, idx) => (
-                          <tr key={idx} className="border-b border-red-100 bg-red-50/50">
-                            <td className="px-3 py-1.5">{m.customerCode} - {m.customerName}</td>
-                            <td className="px-3 py-1.5">{m.gasCode}</td>
-                            <td className="px-3 py-1.5">{m.ownerCode}</td>
-                            <td className="px-3 py-1.5 text-right">{m.issued}</td>
-                            <td className="px-3 py-1.5 text-right">{m.returned}</td>
-                            <td className="px-3 py-1.5 text-right font-medium">{m.balance}</td>
-                            <td className="px-3 py-1.5 text-right">{m.activeHoldings}</td>
-                            <td className="px-3 py-1.5 text-right font-bold text-red-600">{m.delta > 0 ? '+' : ''}{m.delta}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {/* Missing ECR */}
-                {(reconciliationData.missingEcr || []).length > 0 && (
-                  <div>
-                    <h3 className="font-semibold mb-2 text-amber-700">⚠ Missing ECR Records ({reconciliationData.missingEcr.length})</h3>
-                    <table className="w-full text-sm border-collapse">
-                      <thead>
-                        <tr className="bg-amber-50 border-y border-amber-200 text-xs uppercase tracking-wider text-amber-600 font-semibold">
-                          <th className="px-3 py-1.5">Customer</th>
-                          <th className="px-3 py-1.5">Cylinder</th>
-                          <th className="px-3 py-1.5">Issued</th>
-                          <th className="px-3 py-1.5">Returned</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {reconciliationData.missingEcr.map((m, idx) => (
-                          <tr key={idx} className="border-b border-amber-100">
-                            <td className="px-3 py-1.5">{m.customerCode}</td>
-                            <td className="px-3 py-1.5 font-mono text-xs">{m.cylinderNumber}</td>
-                            <td className="px-3 py-1.5">{formatDate(m.issuedAt)}</td>
-                            <td className="px-3 py-1.5">{m.returnedAt ? formatDate(m.returnedAt) : '-'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {/* Duplicate Issues */}
-                {(reconciliationData.duplicateIssues || []).length > 0 && (
-                  <div>
-                    <h3 className="font-semibold mb-2 text-red-700">⚠ Duplicate Issues ({reconciliationData.duplicateIssues.length})</h3>
-                    <table className="w-full text-sm border-collapse">
-                      <thead>
-                        <tr className="bg-red-50 border-y border-red-200 text-xs uppercase tracking-wider text-red-600 font-semibold">
-                          <th className="px-3 py-1.5">Cylinder</th>
-                          <th className="px-3 py-1.5 text-right">Active Holdings</th>
-                          <th className="px-3 py-1.5">Customers</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {reconciliationData.duplicateIssues.map((d, idx) => (
-                          <tr key={idx} className="border-b border-red-100">
-                            <td className="px-3 py-1.5 font-mono text-xs">{d.cylinderNumber}</td>
-                            <td className="px-3 py-1.5 text-right font-bold text-red-600">{d.count}</td>
-                            <td className="px-3 py-1.5 text-xs">{d.records?.map(r => r.customerCode).join(', ')}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {/* All Clear */}
-                {!reconciliationData.mismatches?.length && !reconciliationData.missingEcr?.length && !reconciliationData.duplicateIssues?.length && (
-                  <div className="py-8 text-center text-green-600 font-medium">
-                    ✓ All holdings are reconciled. No mismatches found.
-                  </div>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      {needsCustomer ? (
+        <EmptyState
+          title="Customer required"
+          description="Select a customer in the filter bar to load the statement."
+        />
+      ) : reportSections.length ? (
+        <div className="space-y-6">
+          {reportSections.map((section) => (
+            <ReportSection key={section.title} section={section} />
+          ))}
+        </div>
+      ) : (
+        <EmptyState title="No report data yet" description="Select a report and apply filters to load data." />
       )}
     </div>
   );

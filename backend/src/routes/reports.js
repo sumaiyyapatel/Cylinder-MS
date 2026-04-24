@@ -2,6 +2,25 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const { authenticate } = require('../lib/auth');
 const { runReconciliation, validateHoldingRents, findOrphanedHoldings, auditBillToEcrMatching } = require('../services/reconciliationService');
+const { createAuditLog } = require('../services/auditService');
+const { sendReportPdf, formatAmount, formatDate } = require('../services/reportPdfService');
+const {
+  getAgeAnalysisOutstandingReport,
+  getBookReport,
+  getCustomerStatementReport,
+  getCylinderRotationReport,
+  getDailyReport,
+  getHoldingStatementReport,
+  getIssueWithoutPurchaseReport,
+  getOutstandingReport,
+  getPartyRentalReport,
+  getReconciliationReport,
+  getSaleReturnReport,
+  getSaleReturnSummaryReport,
+  getSaleTransactionsReport,
+  getSalesSummaryReport,
+  getTrialBalanceReport,
+} = require('../services/reportQueryService');
 
 const router = express.Router();
 
@@ -10,6 +29,345 @@ function extractCount(countValue) {
   if (countValue && typeof countValue._all === 'number') return countValue._all;
   return 0;
 }
+
+async function buildReportPdfPayload(type, query) {
+  switch (type) {
+    case 'holding': {
+      const data = await getHoldingStatementReport(prisma, query);
+      return {
+        title: 'Holding Statement',
+        subtitle: query.filter === 'overdue' ? 'Overdue cylinders only' : 'Active cylinder holdings',
+        fileName: 'holding-statement',
+        layout: 'landscape',
+        sections: data.map((group) => ({
+          title: `${group.customerCode} - ${group.customerName}`,
+          headers: ['Cylinder', 'Gas', 'Owner', 'Issued', 'Bill No', 'Hold Days'],
+          rows: group.cylinders.map((item) => [
+            item.cylinderNumber || '-',
+            item.gasCode || '-',
+            item.ownerCode || '-',
+            formatDate(item.issuedAt),
+            item.billNumber || '-',
+            item.holdDays ?? '-',
+          ]),
+        })),
+      };
+    }
+    case 'daily': {
+      const data = await getDailyReport(prisma, query);
+      return {
+        title: 'Daily Report',
+        subtitle: `Date: ${formatDate(data.date)}`,
+        fileName: `daily-report-${formatDate(data.date).replace(/\//g, '-')}`,
+        sections: [
+          {
+            title: 'Issues',
+            headers: ['Bill No', 'Customer', 'Cylinder', 'Gas', 'Quantity'],
+            rows: data.issues.map((item) => [
+              item.billNumber || '-',
+              item.customer?.name || '-',
+              item.cylinderNumber || '-',
+              item.gasCode || '-',
+              item.quantityCum ?? '-',
+            ]),
+          },
+          {
+            title: 'Returns',
+            headers: ['ECR No', 'Customer', 'Cylinder', 'Hold Days', 'Rent'],
+            rows: data.returns.map((item) => [
+              item.ecrNumber || '-',
+              item.customer?.name || '-',
+              item.cylinderNumber || '-',
+              item.holdDays ?? '-',
+              formatAmount(item.rentAmount || 0),
+            ]),
+          },
+        ],
+      };
+    }
+    case 'customer-stmt': {
+      const data = await getCustomerStatementReport(prisma, query);
+      return {
+        title: 'Customer Statement',
+        subtitle: `${data.customer?.code || '-'} - ${data.customer?.name || '-'}`,
+        fileName: `customer-statement-${data.customer?.code || 'report'}`,
+        sections: [
+          {
+            title: 'Issues',
+            headers: ['Bill No', 'Date', 'Cylinder', 'Gas', 'Quantity'],
+            rows: data.issues.map((item) => [
+              item.billNumber || '-',
+              formatDate(item.billDate),
+              item.cylinderNumber || '-',
+              item.gasCode || '-',
+              item.quantityCum ?? '-',
+            ]),
+          },
+          {
+            title: 'Returns',
+            headers: ['ECR No', 'Date', 'Cylinder', 'Hold Days', 'Rent'],
+            rows: data.returns.map((item) => [
+              item.ecrNumber || '-',
+              formatDate(item.ecrDate),
+              item.cylinderNumber || '-',
+              item.holdDays ?? '-',
+              formatAmount(item.rentAmount || 0),
+            ]),
+          },
+        ],
+      };
+    }
+    case 'trial-balance': {
+      const data = await getTrialBalanceReport(prisma, query);
+      return {
+        title: 'Trial Balance',
+        subtitle: 'Grouped by party code',
+        fileName: 'trial-balance',
+        sections: [
+          {
+            title: 'Balances',
+            headers: ['Party Code', 'Party Name', 'Debit', 'Credit', 'Balance'],
+            rows: data.map((item) => [
+              item.partyCode || '-',
+              item.partyName || '-',
+              formatAmount(item.debit || 0),
+              formatAmount(item.credit || 0),
+              `${formatAmount(Math.abs(item.balance || 0))} ${item.balance > 0 ? 'Dr' : 'Cr'}`,
+            ]),
+          },
+        ],
+      };
+    }
+    case 'cylinder-rotation': {
+      const data = await getCylinderRotationReport(prisma, query);
+      return {
+        title: 'Cylinder Rotation',
+        subtitle: 'Cylinder lifecycle history',
+        fileName: 'cylinder-rotation',
+        layout: 'landscape',
+        sections: data.map((group) => ({
+          title: `${group.cylinderNumber} (${group.currentStatus || '-'})`,
+          headers: ['Customer', 'Bill No', 'Issued', 'Returned', 'Days Held', 'Status'],
+          rows: group.history.map((item) => [
+            `${item.customerCode || '-'} - ${item.customerName || '-'}`,
+            item.billNumber || '-',
+            formatDate(item.issuedAt),
+            item.returnedAt ? formatDate(item.returnedAt) : '-',
+            item.holdDays ?? '-',
+            item.status || '-',
+          ]),
+        })),
+      };
+    }
+    case 'sale-txn': {
+      const data = await getSaleTransactionsReport(prisma, query);
+      return {
+        title: 'Sale Transactions',
+        subtitle: 'Filtered transaction detail',
+        fileName: 'sale-transactions',
+        layout: 'landscape',
+        sections: [
+          {
+            title: 'Transactions',
+            headers: ['Bill No', 'Date', 'Customer', 'Cylinder', 'Gas', 'Quantity'],
+            rows: data.map((item) => [
+              item.billNumber || '-',
+              formatDate(item.billDate),
+              item.customer?.name || '-',
+              item.cylinderNumber || '-',
+              item.gasCode || '-',
+              item.quantityCum ?? '-',
+            ]),
+          },
+        ],
+      };
+    }
+    case 'outstanding': {
+      const data = await getOutstandingReport(prisma);
+      return {
+        title: 'Outstanding Payments',
+        subtitle: 'Receivable and payable balances',
+        fileName: 'outstanding-payments',
+        sections: [
+          {
+            title: 'Outstanding',
+            headers: ['Party', 'Debit', 'Credit', 'Balance', 'Type'],
+            rows: data.map((item) => [
+              `${item.partyCode || '-'} - ${item.partyName || '-'}`,
+              formatAmount(item.debit || 0),
+              formatAmount(item.credit || 0),
+              `${formatAmount(Math.abs(item.balance || 0))} ${item.balance > 0 ? 'Dr' : 'Cr'}`,
+              item.type || '-',
+            ]),
+          },
+        ],
+      };
+    }
+    case 'sales-summary': {
+      const data = await getSalesSummaryReport(prisma, query);
+      return {
+        title: 'Sales Summary',
+        subtitle: 'Grouped by gas and customer',
+        fileName: 'sales-summary',
+        sections: [
+          {
+            title: 'By Gas',
+            headers: ['Gas', 'Bills', 'Total Cu.M'],
+            rows: data.byGas.map((item) => [item.gasCode || '-', item.count, item.totalCum ?? 0]),
+          },
+          {
+            title: 'By Customer',
+            headers: ['Customer', 'Bills', 'Total Cu.M'],
+            rows: data.byCustomer.map((item) => [`${item?.code || '-'} - ${item?.name || '-'}`, item.count, item.totalCum ?? 0]),
+          },
+        ],
+      };
+    }
+    case 'party-rental': {
+      const data = await getPartyRentalReport(prisma, query);
+      return {
+        title: 'Party Wise Rental',
+        subtitle: 'Rental dues grouped by customer',
+        fileName: 'party-rental',
+        sections: [
+          {
+            title: 'Rental Summary',
+            headers: ['Party', 'Returned Cylinders', 'Total Days', 'Total Rent'],
+            rows: data.map((item) => [
+              `${item.partyCode || '-'} - ${item.partyName || '-'}`,
+              item.count || 0,
+              item.totalDays || 0,
+              formatAmount(item.totalRent || 0),
+            ]),
+          },
+        ],
+      };
+    }
+    case 'cash-book':
+    case 'bank-book':
+    case 'journal-book': {
+      const selected =
+        type === 'cash-book'
+          ? {
+              title: 'Cash Book',
+              data: await getBookReport(prisma, query, ['CASH_RECEIPT', 'CASH_PAYMENT']),
+            }
+          : type === 'bank-book'
+            ? {
+                title: 'Bank Book',
+                data: await getBookReport(prisma, query, ['BANK_RECEIPT', 'BANK_PAYMENT']),
+              }
+            : {
+                title: 'Journal Book',
+                data: await getBookReport(prisma, query, ['JOURNAL', 'CONTRA', 'DEBIT_NOTE', 'CREDIT_NOTE']),
+              };
+      return {
+        title: selected.title,
+        subtitle: 'Ledger movement',
+        fileName: type,
+        layout: 'landscape',
+        sections: [
+          {
+            title: selected.title,
+            headers: type === 'journal-book'
+              ? ['Voucher No', 'Date', 'Party', 'Type', 'Particular', 'Debit', 'Credit']
+              : ['Voucher No', 'Date', 'Party', 'Particular', 'Debit', 'Credit', 'Running Balance'],
+            rows: selected.data.map((item) =>
+              type === 'journal-book'
+                ? [
+                    item.voucherNumber || '-',
+                    formatDate(item.voucherDate),
+                    item.customer?.name || item.partyCode || '-',
+                    (item.transactionType || '-').replace(/_/g, ' '),
+                    item.particular || '-',
+                    item.debitAmount ? formatAmount(item.debitAmount) : '-',
+                    item.creditAmount ? formatAmount(item.creditAmount) : '-',
+                  ]
+                : [
+                    item.voucherNumber || '-',
+                    formatDate(item.voucherDate),
+                    item.customer?.name || item.partyCode || '-',
+                    item.particular || '-',
+                    item.debitAmount ? formatAmount(item.debitAmount) : '-',
+                    item.creditAmount ? formatAmount(item.creditAmount) : '-',
+                    formatAmount(item.runningBalance || 0),
+                  ]
+            ),
+          },
+        ],
+      };
+    }
+    case 'reconciliation': {
+      const data = await getReconciliationReport(prisma, query);
+      return {
+        title: 'Reconciliation',
+        subtitle: 'Holding parity checks',
+        fileName: 'reconciliation',
+        layout: 'landscape',
+        sections: [
+          {
+            title: 'Mismatches',
+            headers: ['Customer', 'Gas', 'Owner', 'Issued', 'Returned', 'Balance', 'Holdings', 'Delta'],
+            rows: (data.mismatches || []).map((item) => [
+              `${item.customerCode} - ${item.customerName}`,
+              item.gasCode || '-',
+              item.ownerCode || '-',
+              item.issued,
+              item.returned,
+              item.balance,
+              item.activeHoldings,
+              item.delta,
+            ]),
+          },
+          {
+            title: 'Missing ECR',
+            headers: ['Customer', 'Cylinder', 'Issued', 'Returned'],
+            rows: (data.missingEcr || []).map((item) => [
+              item.customerCode || '-',
+              item.cylinderNumber || '-',
+              formatDate(item.issuedAt),
+              item.returnedAt ? formatDate(item.returnedAt) : '-',
+            ]),
+          },
+          {
+            title: 'Duplicate Issues',
+            headers: ['Cylinder', 'Active Holdings', 'Customers'],
+            rows: (data.duplicateIssues || []).map((item) => [
+              item.cylinderNumber || '-',
+              item.count || 0,
+              item.records?.map((record) => record.customerCode).join(', ') || '-',
+            ]),
+          },
+        ],
+      };
+    }
+    default:
+      throw new Error(`Unsupported report export type: ${type}`);
+  }
+}
+
+router.get('/export', authenticate, async (req, res) => {
+  try {
+    const type = String(req.query.type || '').trim();
+    if (!type) return res.status(400).json({ error: 'type is required' });
+
+    const payload = await buildReportPdfPayload(type, req.query);
+    await sendReportPdf(res, payload);
+
+    await createAuditLog(prisma, {
+      action: 'PDF_DOWNLOAD',
+      module: 'reports',
+      userId: req.user.sub,
+      entityId: type,
+      newValue: { reportType: type, downloadedAt: new Date().toISOString(), filters: req.query },
+    });
+  } catch (err) {
+    if (!res.headersSent) {
+      const statusCode = /required|unsupported/i.test(err.message) ? 400 : 500;
+      res.status(statusCode).json({ error: err.message });
+    }
+  }
+});
 
 // Holding Statement - all customers x gas types
 router.get('/holding-statement', authenticate, async (req, res) => {
@@ -541,27 +899,8 @@ router.get('/holding-party-status', authenticate, async (req, res) => {
 // Issue Without Purchase - transactions where no matching order exists
 router.get('/issue-without-purchase', authenticate, async (req, res) => {
   try {
-    const { dateFrom, dateTo } = req.query;
-    const where = {};
-    if (dateFrom || dateTo) {
-      where.billDate = {};
-      if (dateFrom) where.billDate.gte = new Date(dateFrom);
-      if (dateTo) where.billDate.lte = new Date(dateTo + 'T23:59:59Z');
-    }
-
-    const transactions = await prisma.transaction.findMany({
-      where,
-      include: {
-        customer: { select: { code: true, name: true } },
-        cylinderHolding: { select: { id: true } },
-      },
-      orderBy: { billDate: 'desc' },
-    });
-
-    // Filter transactions that have no matching order (orderNumber is null or empty)
-    const withoutPurchase = transactions.filter(t => !t.orderNumber || t.orderNumber.trim() === '');
-
-    res.json(withoutPurchase);
+    const result = await getIssueWithoutPurchaseReport(prisma, req.query);
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -570,22 +909,8 @@ router.get('/issue-without-purchase', authenticate, async (req, res) => {
 // Sale Return - ECR records in date range
 router.get('/sale-return', authenticate, async (req, res) => {
   try {
-    const { dateFrom, dateTo, customerId } = req.query;
-    const where = {};
-    if (customerId) where.customerId = parseInt(customerId);
-    if (dateFrom || dateTo) {
-      where.ecrDate = {};
-      if (dateFrom) where.ecrDate.gte = new Date(dateFrom);
-      if (dateTo) where.ecrDate.lte = new Date(dateTo + 'T23:59:59Z');
-    }
-
-    const ecrs = await prisma.ecrRecord.findMany({
-      where,
-      include: { customer: { select: { code: true, name: true } } },
-      orderBy: { ecrDate: 'desc' },
-    });
-
-    res.json(ecrs);
+    const result = await getSaleReturnReport(prisma, req.query);
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -594,48 +919,8 @@ router.get('/sale-return', authenticate, async (req, res) => {
 // Sale Return Summary - ECR grouped by customer, totals
 router.get('/sale-return-summary', authenticate, async (req, res) => {
   try {
-    const { dateFrom, dateTo } = req.query;
-    const where = {};
-    if (dateFrom || dateTo) {
-      where.ecrDate = {};
-      if (dateFrom) where.ecrDate.gte = new Date(dateFrom);
-      if (dateTo) where.ecrDate.lte = new Date(dateTo + 'T23:59:59Z');
-    }
-
-    const ecrs = await prisma.ecrRecord.findMany({
-      where,
-      include: { customer: { select: { code: true, name: true } } },
-      orderBy: { ecrDate: 'desc' },
-    });
-
-    // Group by customer
-    const grouped = {};
-    for (const e of ecrs) {
-      const key = e.customer.code;
-      if (!grouped[key]) {
-        grouped[key] = {
-          customerCode: e.customer.code,
-          customerName: e.customer.name,
-          totalReturns: 0,
-          totalRent: 0,
-          totalDays: 0,
-          records: [],
-        };
-      }
-      grouped[key].totalReturns++;
-      grouped[key].totalRent += parseFloat(e.rentAmount || 0);
-      grouped[key].totalDays += (e.holdDays || 0);
-      grouped[key].records.push({
-        ecrNumber: e.ecrNumber,
-        ecrDate: e.ecrDate,
-        cylinderNumber: e.cylinderNumber,
-        gasCode: e.gasCode,
-        holdDays: e.holdDays,
-        rentAmount: parseFloat(e.rentAmount || 0),
-      });
-    }
-
-    res.json(Object.values(grouped));
+    const result = await getSaleReturnSummaryReport(prisma, req.query);
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -724,66 +1009,8 @@ router.get('/age-analysis-ledger', authenticate, async (req, res) => {
 // Age Analysis Outstanding - outstanding balances aged by invoice date
 router.get('/age-analysis-outstanding', authenticate, async (req, res) => {
   try {
-    const { asOfDate } = req.query;
-    const cutoffDate = asOfDate ? new Date(asOfDate) : new Date();
-
-    // Get all transactions with outstanding balances
-    const transactions = await prisma.transaction.findMany({
-      include: {
-        customer: { select: { code: true, name: true } },
-        cylinderHolding: { select: { status: true, issuedAt: true } },
-      },
-    });
-
-    const result = [];
-
-    for (const txn of transactions) {
-      // Calculate outstanding balance (simplified - in real app would need proper ledger tracking)
-      const balance = 0; // This would need to be calculated based on payments received
-
-      if (Math.abs(balance) < 0.01) continue;
-
-      const daysDiff = Math.floor((cutoffDate - new Date(txn.billDate)) / (1000 * 60 * 60 * 24));
-
-      let bucket = '90+';
-      if (daysDiff <= 30) bucket = '0-30';
-      else if (daysDiff <= 60) bucket = '31-60';
-      else if (daysDiff <= 90) bucket = '61-90';
-
-      result.push({
-        billNumber: txn.billNumber,
-        billDate: txn.billDate,
-        partyCode: txn.customer.code,
-        partyName: txn.customer.name,
-        balance: Math.abs(balance),
-        daysOutstanding: daysDiff,
-        bucket,
-        cylinderNumber: txn.cylinderNumber,
-        gasCode: txn.gasCode,
-      });
-    }
-
-    // Group by bucket
-    const buckets = {
-      '0-30': [],
-      '31-60': [],
-      '61-90': [],
-      '90+': [],
-    };
-
-    result.forEach(item => {
-      buckets[item.bucket].push(item);
-    });
-
-    res.json({
-      buckets,
-      summary: {
-        '0-30': buckets['0-30'].reduce((sum, item) => sum + item.balance, 0),
-        '31-60': buckets['31-60'].reduce((sum, item) => sum + item.balance, 0),
-        '61-90': buckets['61-90'].reduce((sum, item) => sum + item.balance, 0),
-        '90+': buckets['90+'].reduce((sum, item) => sum + item.balance, 0),
-      },
-    });
+    const result = await getAgeAnalysisOutstandingReport(prisma, req.query);
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

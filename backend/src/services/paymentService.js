@@ -3,6 +3,7 @@ const { round2 } = require('./businessRules');
 const { generateLedgerVoucherNumber } = require('./numberingService');
 const { buildReceiptEntries } = require('./ledgerValidationService');
 const { postLedgerEntries } = require('./ledgerPostingService');
+const { createAuditLog } = require('./auditService');
 
 const VALID_PAYMENT_MODES = ['CASH', 'CHEQUE', 'BANK_TRANSFER', 'UPI'];
 
@@ -62,6 +63,28 @@ async function getBillOrThrow(tx, billId, customerId) {
   return bill;
 }
 
+async function getEcrOrThrow(tx, ecrId, customerId) {
+  if (!ecrId) return null;
+
+  const ecr = await tx.ecrRecord.findUnique({
+    where: { id: ecrId },
+    select: {
+      id: true,
+      customerId: true,
+      ecrNumber: true,
+      ecrDate: true,
+      rentAmount: true,
+    },
+  });
+
+  if (!ecr) throw new AppError(404, 'ECR not found');
+  if (ecr.customerId !== customerId) {
+    throw new AppError(409, 'ECR does not belong to the selected customer');
+  }
+
+  return ecr;
+}
+
 function mapPaymentRow(row) {
   if (!row) return null;
   return {
@@ -70,6 +93,7 @@ function mapPaymentRow(row) {
     voucherDate: row.voucherDate,
     customerId: row.customerId,
     billId: row.billId,
+    ecrId: row.ecrId,
     paymentMode: row.paymentMode,
     amount: asNumber(row.amount),
     reference: row.reference,
@@ -80,6 +104,7 @@ function mapPaymentRow(row) {
 async function recordPayment(tx, {
   customerId,
   billId,
+  ecrId,
   amount,
   paymentMode,
   reference,
@@ -92,8 +117,33 @@ async function recordPayment(tx, {
   }
 
   const effectivePaymentMode = normalizePaymentMode(paymentMode);
+  if (effectivePaymentMode !== 'CASH' && !String(reference || '').trim()) {
+    throw new AppError(400, 'Reference is required for non-cash payments');
+  }
+
   const customer = await getCustomerOrThrow(tx, customerId);
   const bill = await getBillOrThrow(tx, billId, customerId);
+  const ecr = await getEcrOrThrow(tx, ecrId, customerId);
+
+  if (bill && ecr) {
+    throw new AppError(400, 'Payment can link to either billId or ecrId, not both');
+  }
+
+  const outstanding = await getCustomerOutstanding(tx, customerId);
+  if (bill) {
+    const billOutstanding = outstanding.find((item) => item.type === 'BILL' && item.billId === bill.id);
+    const owing = billOutstanding?.owing || 0;
+    if (normalizedAmount > owing + 0.01) {
+      throw new AppError(409, `Payment exceeds bill outstanding by ${round2(normalizedAmount - owing)}`);
+    }
+  }
+  if (ecr) {
+    const ecrOutstanding = outstanding.find((item) => item.type === 'ECR_RENT' && item.ecrId === ecr.id);
+    const owing = ecrOutstanding?.owing || 0;
+    if (normalizedAmount > owing + 0.01) {
+      throw new AppError(409, `Payment exceeds ECR rent outstanding by ${round2(normalizedAmount - owing)}`);
+    }
+  }
 
   const transactionType = getReceiptTransactionType(effectivePaymentMode);
   const voucherNumber = await generateLedgerVoucherNumber(tx, transactionType, voucherDate);
@@ -103,6 +153,7 @@ async function recordPayment(tx, {
       voucher_date,
       customer_id,
       bill_id,
+      ecr_id,
       payment_mode,
       amount,
       reference,
@@ -113,6 +164,7 @@ async function recordPayment(tx, {
       ${voucherDate},
       ${customerId},
       ${bill?.id ?? null},
+      ${ecr?.id ?? null},
       ${effectivePaymentMode},
       ${normalizedAmount},
       ${reference || null},
@@ -124,6 +176,7 @@ async function recordPayment(tx, {
       voucher_date AS "voucherDate",
       customer_id AS "customerId",
       bill_id AS "billId",
+      ecr_id AS "ecrId",
       payment_mode AS "paymentMode",
       amount,
       reference,
@@ -134,7 +187,7 @@ async function recordPayment(tx, {
 
   const receiptEntries = buildReceiptEntries({
     partyCode: customer.code,
-    refNumber: bill?.billNumber || voucherNumber,
+    refNumber: bill?.billNumber || ecr?.ecrNumber || voucherNumber,
     amount: normalizedAmount,
     mode: getReceiptLedgerMode(effectivePaymentMode),
   });
@@ -146,11 +199,28 @@ async function recordPayment(tx, {
 
   const balance = await updateCustomerBalance(tx, customerId, voucherDate);
 
+  await createAuditLog(tx, {
+    action: 'PAYMENT_RECORDED',
+    module: 'payments',
+    userId: operatorId,
+    entityId: String(payment.id),
+    newValue: {
+      voucherNumber,
+      customerCode: customer.code,
+      billNumber: bill?.billNumber || null,
+      ecrNumber: ecr?.ecrNumber || null,
+      amount: normalizedAmount,
+      paymentMode: effectivePaymentMode,
+      reference: reference || null,
+    },
+  });
+
   return {
     ...payment,
     customerCode: customer.code,
     customerName: customer.name,
     billNumber: bill?.billNumber || null,
+    ecrNumber: ecr?.ecrNumber || null,
     balance,
   };
 }
@@ -246,37 +316,51 @@ async function getCustomerBalance(tx, customerId) {
 async function getCustomerOutstanding(tx, customerId) {
   await getCustomerOrThrow(tx, customerId);
 
-  const bills = await tx.bill.findMany({
-    where: { customerId },
-    select: {
-      id: true,
-      billNumber: true,
-      billDate: true,
-      totalAmount: true,
-    },
-    orderBy: { billDate: 'asc' },
-  });
+  const [bills, ecrs] = await Promise.all([
+    tx.bill.findMany({
+      where: { customerId },
+      select: {
+        id: true,
+        billNumber: true,
+        billDate: true,
+        totalAmount: true,
+      },
+      orderBy: { billDate: 'asc' },
+    }),
+    tx.ecrRecord.findMany({
+      where: { customerId, rentAmount: { gt: 0 } },
+      select: {
+        id: true,
+        ecrNumber: true,
+        ecrDate: true,
+        rentAmount: true,
+        cylinderNumber: true,
+      },
+      orderBy: { ecrDate: 'asc' },
+    }),
+  ]);
 
-  if (!bills.length) return [];
+  if (!bills.length && !ecrs.length) return [];
 
   const payments = await tx.$queryRaw`
     SELECT
       bill_id AS "billId",
+      ecr_id AS "ecrId",
       COALESCE(SUM(amount), 0)::numeric AS "paidAmount"
     FROM payments
     WHERE customer_id = ${customerId}
-      AND bill_id IS NOT NULL
-    GROUP BY bill_id
+      AND (bill_id IS NOT NULL OR ecr_id IS NOT NULL)
+    GROUP BY bill_id, ecr_id
   `;
 
   const paidMap = new Map(
-    payments.map((row) => [row.billId, asNumber(row.paidAmount)])
+    payments.map((row) => [`${row.billId ? 'BILL' : 'ECR'}:${row.billId || row.ecrId}`, asNumber(row.paidAmount)])
   );
 
-  return bills
+  const billOutstanding = bills
     .map((bill) => {
       const totalAmount = asNumber(bill.totalAmount);
-      const paidAmount = round2(paidMap.get(bill.id) || 0);
+      const paidAmount = round2(paidMap.get(`BILL:${bill.id}`) || 0);
       const owing = round2(totalAmount - paidAmount);
       const daysOverdue = Math.max(
         0,
@@ -284,9 +368,15 @@ async function getCustomerOutstanding(tx, customerId) {
       );
 
       return {
+        type: 'BILL',
         billId: bill.id,
+        ecrId: null,
+        refNumber: bill.billNumber,
         billNumber: bill.billNumber,
+        ecrNumber: null,
         billDate: bill.billDate,
+        documentDate: bill.billDate,
+        description: 'Bill outstanding',
         amount: totalAmount,
         paid: paidAmount,
         owing,
@@ -294,6 +384,38 @@ async function getCustomerOutstanding(tx, customerId) {
       };
     })
     .filter((bill) => bill.owing > 0);
+
+  const ecrOutstanding = ecrs
+    .map((ecr) => {
+      const totalAmount = asNumber(ecr.rentAmount);
+      const paidAmount = round2(paidMap.get(`ECR:${ecr.id}`) || 0);
+      const owing = round2(totalAmount - paidAmount);
+      const daysOverdue = Math.max(
+        0,
+        Math.floor((Date.now() - new Date(ecr.ecrDate).getTime()) / 86400000)
+      );
+
+      return {
+        type: 'ECR_RENT',
+        billId: null,
+        ecrId: ecr.id,
+        refNumber: ecr.ecrNumber,
+        billNumber: null,
+        ecrNumber: ecr.ecrNumber,
+        billDate: ecr.ecrDate,
+        documentDate: ecr.ecrDate,
+        description: `Rent for cylinder ${ecr.cylinderNumber || '-'}`,
+        amount: totalAmount,
+        paid: paidAmount,
+        owing,
+        daysOverdue,
+      };
+    })
+    .filter((ecr) => ecr.owing > 0);
+
+  return [...billOutstanding, ...ecrOutstanding].sort(
+    (a, b) => new Date(a.documentDate).getTime() - new Date(b.documentDate).getTime()
+  );
 }
 
 module.exports = {

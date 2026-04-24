@@ -1,24 +1,24 @@
 // Format date as DD/MM/YYYY
 export function formatDate(dateStr) {
   if (!dateStr) return "-";
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return "-";
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  return `${dd}/${mm}/${yyyy}`;
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return "-";
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+  return `${day}/${month}/${year}`;
 }
 
 // Format currency in Indian format
 export function formatINR(amount) {
-  if (amount === null || amount === undefined) return "₹0";
+  if (amount === null || amount === undefined) return "\u20B90";
   const num = parseFloat(amount);
-  if (isNaN(num)) return "₹0";
+  if (isNaN(num)) return "\u20B90";
   const formatted = num.toLocaleString("en-IN", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
-  return `₹${formatted}`;
+  return `\u20B9${formatted}`;
 }
 
 // Format number in Indian format

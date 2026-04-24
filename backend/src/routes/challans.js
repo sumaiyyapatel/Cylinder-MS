@@ -46,7 +46,7 @@ router.get('/:id/pdf', authenticate, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) throw new AppError(400, 'Invalid challan id');
 
-  const sent = await streamChallanPdf(res, id);
+  const sent = await streamChallanPdf(res, id, { userId: req.user.sub });
   if (!sent) throw new AppError(404, 'Challan not found');
 }));
 

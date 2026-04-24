@@ -16,12 +16,16 @@ const router = express.Router();
 router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'ACCOUNTANT'), asyncHandler(async (req, res) => {
   const customerId = parseRequiredInt(req.body.customerId, 'customerId');
   const billIdValue = parseOptionalNonNegativeNumber(req.body.billId, 'billId');
+  const ecrIdValue = parseOptionalNonNegativeNumber(req.body.ecrId, 'ecrId');
   const amountValue = parseOptionalNonNegativeNumber(req.body.amount, 'amount');
   const billId = billIdValue == null ? null : Math.trunc(billIdValue);
+  const ecrId = ecrIdValue == null ? null : Math.trunc(ecrIdValue);
   const amount = amountValue == null ? 0 : amountValue;
   const paymentMode = String(req.body.paymentMode || '').trim().toUpperCase();
 
   if (billId != null && billId <= 0) throw new AppError(400, 'billId must be a positive integer');
+  if (ecrId != null && ecrId <= 0) throw new AppError(400, 'ecrId must be a positive integer');
+  if (billId != null && ecrId != null) throw new AppError(400, 'Use either billId or ecrId, not both');
   if (amount <= 0) throw new AppError(400, 'amount must be positive');
   if (!VALID_PAYMENT_MODES.includes(paymentMode)) throw new AppError(400, 'Invalid paymentMode');
 
@@ -29,6 +33,7 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'ACCOUNTANT'), asyn
   const payment = await prisma.$transaction(async (tx) => recordPayment(tx, {
     customerId,
     billId,
+    ecrId,
     amount,
     paymentMode,
     reference: req.body.reference,

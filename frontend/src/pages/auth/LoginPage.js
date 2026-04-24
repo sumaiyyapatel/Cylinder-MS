@@ -110,6 +110,7 @@ export default function LoginPage() {
                   <User className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
                   <Input
                     id="username"
+                    name="username"
                     data-testid="login-username-input"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
@@ -127,6 +128,7 @@ export default function LoginPage() {
                   <Lock className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
                   <Input
                     id="password"
+                    name="password"
                     type="password"
                     data-testid="login-password-input"
                     value={password}

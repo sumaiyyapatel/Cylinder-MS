@@ -24,6 +24,14 @@ import {
   Wallet,
   X,
 } from "lucide-react";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import { useAuth } from "@/lib/auth";
 import { formatDate, getFinancialYear } from "@/lib/utils-format";
 import api from "@/lib/api";
@@ -85,12 +93,23 @@ const mobileTabs = [
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
-function getPageSummary(pathname) {
-  const match = navGroups
-    .flatMap((group) => group.items)
-    .find((item) => (item.to === "/" ? pathname === "/" : pathname.startsWith(item.to)));
+function getPageMeta(pathname) {
+  for (const group of navGroups) {
+    const match = group.items.find((item) => (item.to === "/" ? pathname === "/" : pathname.startsWith(item.to)));
+    if (match) {
+      return {
+        title: match.label,
+        group: group.label,
+        href: match.to,
+      };
+    }
+  }
 
-  return match?.label || "Operations";
+  return {
+    title: "Operations",
+    group: "Workspace",
+    href: pathname,
+  };
 }
 
 export default function AppLayout() {
@@ -113,7 +132,7 @@ export default function AppLayout() {
   });
 
   const unresolvedAlertsCount = alertsData?.length || 0;
-  const pageTitle = useMemo(() => getPageSummary(location.pathname), [location.pathname]);
+  const pageMeta = useMemo(() => getPageMeta(location.pathname), [location.pathname]);
 
   useEffect(() => {
     api
@@ -154,7 +173,7 @@ export default function AppLayout() {
           `group flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition-all ${
             isActive
               ? "bg-amber-50 text-amber-700 shadow-sm"
-              : "text-slate-200 font-semibold hover:bg-white/8 hover:text-white"
+              : "text-slate-200 font-semibold hover:bg-slate-900 text-whitehover:text-white"
           }`
         }
       >
@@ -231,7 +250,7 @@ export default function AppLayout() {
         </div>
       </aside>
 
-      <header className="sticky top-0 z-30 border-b border-white/70 bg-white/88 backdrop-blur md:ml-[280px]">
+      <header className="sticky top-0 z-30 border-b border-white/70 bg-white text-slate-9008 backdrop-blur md:ml-[280px]">
         <div className="mx-auto flex min-h-[72px] max-w-[1680px] items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
             <button
@@ -244,7 +263,28 @@ export default function AppLayout() {
             </button>
             <div>
               <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">Live workspace</div>
-              <div className="title-font text-xl font-bold text-slate-900">{pageTitle}</div>
+              <div className="title-font text-xl font-bold text-slate-900">{pageMeta.title}</div>
+              <Breadcrumb className="mt-1">
+                <BreadcrumbList className="gap-1 text-xs text-slate-500">
+                  <BreadcrumbItem>
+                    <BreadcrumbLink asChild>
+                      <NavLink to="/">Workspace</NavLink>
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator className="text-slate-400" />
+                  <BreadcrumbItem>
+                    <BreadcrumbPage className="text-xs text-slate-500">{pageMeta.group}</BreadcrumbPage>
+                  </BreadcrumbItem>
+                  {pageMeta.href !== "/" ? (
+                    <>
+                      <BreadcrumbSeparator className="text-slate-400" />
+                      <BreadcrumbItem>
+                        <BreadcrumbPage className="text-xs font-medium text-slate-700">{pageMeta.title}</BreadcrumbPage>
+                      </BreadcrumbItem>
+                    </>
+                  ) : null}
+                </BreadcrumbList>
+              </Breadcrumb>
             </div>
           </div>
 

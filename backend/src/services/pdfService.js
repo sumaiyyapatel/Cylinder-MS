@@ -1,4 +1,5 @@
 const prisma = require('../lib/prisma');
+const { createAuditLog } = require('./auditService');
 
 function sanitizeFileName(value, fallback) {
   const text = String(value || fallback || 'document').trim();
@@ -135,20 +136,49 @@ function drawFooter(doc) {
   }
 }
 
-async function sendPdf(res, fileName, render) {
+async function renderPdfBuffer(render) {
   const doc = createDocument();
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="${sanitizeFileName(fileName, 'document')}.pdf"`);
-  doc.pipe(res);
-  render(doc);
-  drawFooter(doc);
-  doc.end();
-
   return new Promise((resolve, reject) => {
-    res.on('finish', resolve);
-    res.on('error', reject);
+    const chunks = [];
+    doc.on('data', (chunk) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
+    try {
+      render(doc);
+      drawFooter(doc);
+      doc.end();
+    } catch (error) {
+      doc.destroy(error);
+      reject(error);
+    }
   });
+}
+
+async function sendPdf(res, fileName, render) {
+  const safeName = sanitizeFileName(fileName, 'document');
+  const buffer = await renderPdfBuffer(render);
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${safeName}.pdf"`);
+  res.setHeader('Content-Length', String(buffer.length));
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.end(buffer);
+}
+
+async function auditPdfDownload({ module, entityId, userId, fileName }) {
+  if (!userId) return;
+  try {
+    await createAuditLog(prisma, {
+      action: 'PDF_DOWNLOAD',
+      module,
+      userId,
+      entityId: String(entityId),
+      newValue: { fileName, downloadedAt: new Date().toISOString() },
+    });
+  } catch (error) {
+    console.error('[PDF audit] failed:', error.message);
+  }
 }
 
 async function getBillPdfData(id) {
@@ -172,7 +202,7 @@ async function getBillPdfData(id) {
   return { company, bill };
 }
 
-async function streamBillPdf(res, id) {
+async function streamBillPdf(res, id, context = {}) {
   const data = await getBillPdfData(id);
   if (!data) return false;
 
@@ -194,7 +224,8 @@ async function streamBillPdf(res, id) {
     ];
   });
 
-  await sendPdf(res, `Bill-${bill.billNumber}`, (doc) => {
+  const fileName = `Bill-${bill.billNumber}`;
+  await sendPdf(res, fileName, (doc) => {
     let y = drawHeader(doc, company, 'TAX INVOICE', [
       `Bill No: ${bill.billNumber}`,
       `Date: ${formatDate(bill.billDate)}`,
@@ -254,6 +285,7 @@ async function streamBillPdf(res, id) {
     });
     doc.text('Authorised Signatory', 400, 760, { width: 140, align: 'center' });
   });
+  await auditPdfDownload({ module: 'bills', entityId: id, userId: context.userId, fileName });
 
   return true;
 }
@@ -272,13 +304,14 @@ async function getEcrPdfData(id) {
   return { company, ecr };
 }
 
-async function streamEcrPdf(res, id) {
+async function streamEcrPdf(res, id, context = {}) {
   const data = await getEcrPdfData(id);
   if (!data) return false;
 
   const { company, ecr } = data;
 
-  await sendPdf(res, `ECR-${ecr.ecrNumber}`, (doc) => {
+  const fileName = `ECR-${ecr.ecrNumber}`;
+  await sendPdf(res, fileName, (doc) => {
     let y = drawHeader(doc, company, 'EMPTY CYLINDER RETURN', [
       `ECR No: ${ecr.ecrNumber}`,
       `Date: ${formatDate(ecr.ecrDate)}`,
@@ -321,6 +354,7 @@ async function streamEcrPdf(res, id) {
     doc.text('Customer Signature', 40, 760, { width: 160, align: 'center' });
     doc.text('Authorised Signatory', 360, 760, { width: 180, align: 'center' });
   });
+  await auditPdfDownload({ module: 'ecr', entityId: id, userId: context.userId, fileName });
 
   return true;
 }
@@ -361,7 +395,7 @@ async function getChallanPdfData(id) {
   return { company, challan, cylinders };
 }
 
-async function streamChallanPdf(res, id) {
+async function streamChallanPdf(res, id, context = {}) {
   const data = await getChallanPdfData(id);
   if (!data) return false;
 
@@ -374,7 +408,8 @@ async function streamChallanPdf(res, id) {
     formatDate(holding.issuedAt),
   ]);
 
-  await sendPdf(res, `Challan-${challan.challanNumber}`, (doc) => {
+  const fileName = `Challan-${challan.challanNumber}`;
+  await sendPdf(res, fileName, (doc) => {
     let y = drawHeader(doc, company, 'DELIVERY CHALLAN', [
       `Challan No: ${challan.challanNumber}`,
       `Date: ${formatDate(challan.challanDate)}`,
@@ -409,6 +444,7 @@ async function streamChallanPdf(res, id) {
     doc.text('Receiver Signature', 40, 760, { width: 160, align: 'center' });
     doc.text('Authorised Signatory', 360, 760, { width: 180, align: 'center' });
   });
+  await auditPdfDownload({ module: 'challans', entityId: id, userId: context.userId, fileName });
 
   return true;
 }

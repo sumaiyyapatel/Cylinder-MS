@@ -51,7 +51,7 @@ router.get('/:id/pdf', authenticate, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) throw new AppError(400, 'Invalid ECR id');
 
-  const sent = await streamEcrPdf(res, id);
+  const sent = await streamEcrPdf(res, id, { userId: req.user.sub });
   if (!sent) throw new AppError(404, 'ECR not found');
 }));
 

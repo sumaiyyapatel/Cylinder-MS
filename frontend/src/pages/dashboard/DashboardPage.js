@@ -8,7 +8,9 @@ import {
   Clock3,
   CreditCard,
   IndianRupee,
+  LineChart,
   Package,
+  RefreshCw,
   RotateCcw,
   Truck,
 } from "lucide-react";
@@ -28,6 +30,7 @@ import api from "@/lib/api";
 import { formatDate, formatINR } from "@/lib/utils-format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const chartColors = ["#1e3a5f", "#d97706", "#10b981", "#3b82f6", "#ef4444", "#a855f7"];
 
@@ -55,24 +58,42 @@ function DashboardSkeleton() {
 export default function DashboardPage() {
   const navigate = useNavigate();
   const rotationRef = useRef(null);
+  const gasMixRef = useRef(null);
   const [rotationWidth, setRotationWidth] = useState(0);
+  const [gasMixWidth, setGasMixWidth] = useState(0);
+  const [activeTab, setActiveTab] = useState("overview");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching, refetch, dataUpdatedAt } = useQuery({
     queryKey: ["dashboard"],
     queryFn: () => api.get("/dashboard").then((r) => r.data),
     refetchInterval: 30000,
   });
 
   useEffect(() => {
-    if (!rotationRef.current || typeof ResizeObserver === "undefined") return undefined;
+    if (typeof ResizeObserver === "undefined") return undefined;
 
-    const observer = new ResizeObserver(([entry]) => {
-      setRotationWidth(Math.floor(entry?.contentRect?.width || 0));
-    });
-    observer.observe(rotationRef.current);
-    setRotationWidth(rotationRef.current.clientWidth || 0);
-    return () => observer.disconnect();
-  }, []);
+    const observers = [];
+
+    if (rotationRef.current) {
+      const observer = new ResizeObserver(([entry]) => {
+        setRotationWidth(Math.floor(entry?.contentRect?.width || 0));
+      });
+      observer.observe(rotationRef.current);
+      setRotationWidth(rotationRef.current.clientWidth || 0);
+      observers.push(observer);
+    }
+
+    if (gasMixRef.current) {
+      const observer = new ResizeObserver(([entry]) => {
+        setGasMixWidth(Math.floor(entry?.contentRect?.width || 0));
+      });
+      observer.observe(gasMixRef.current);
+      setGasMixWidth(gasMixRef.current.clientWidth || 0);
+      observers.push(observer);
+    }
+
+    return () => observers.forEach((obs) => obs.disconnect());
+  }, [activeTab]);
 
   const stats = data?.stats || {};
 
@@ -103,6 +124,12 @@ export default function DashboardPage() {
 
   const recentBills = (data?.recentTransactions || data?.recentBills || []).slice(0, 6);
   const topCustomers = (data?.topCustomers || []).slice(0, 5);
+  const lastUpdatedLabel = dataUpdatedAt
+    ? new Date(dataUpdatedAt).toLocaleString("en-IN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : "Waiting for data";
 
   const statCards = [
     {
@@ -149,55 +176,94 @@ export default function DashboardPage() {
               Operators get a quick reading on issues, returns, overdue stock, and collection pressure before starting the next action.
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <div className="rounded-2xl border border-white/10 bg-white/8 px-4 py-3">
-              <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-200">Cash today</div>
-              <div className="mt-1 title-font text-xl font-bold">{formatINR(stats.cashCollectedToday)}</div>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/8 px-4 py-3">
-              <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-200">Outstanding</div>
-              <div className="mt-1 title-font text-xl font-bold">{formatINR(stats.outstandingPayments)}</div>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/8 px-4 py-3 col-span-2 sm:col-span-1">
-              <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-200">Plant health</div>
-              <div className="mt-1 flex items-center gap-2 text-sm font-semibold text-emerald-200">
-                <Truck className="h-4 w-4" />
-                Rotation active
+          <div className="grid gap-3 sm:min-w-[340px]">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-white/10 bg-slate-900 text-whitepx-4 py-3">
+                <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-200">Cash today</div>
+                <div className="mt-1 title-font text-xl font-bold">{formatINR(stats.cashCollectedToday)}</div>
               </div>
+              <div className="rounded-2xl border border-white/10 bg-slate-900 text-whitepx-4 py-3">
+                <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-200">Outstanding</div>
+                <div className="mt-1 title-font text-xl font-bold">{formatINR(stats.outstandingPayments)}</div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-slate-900 text-whitepx-4 py-3 col-span-2 sm:col-span-1">
+                <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-200">Plant health</div>
+                <div className="mt-1 flex items-center gap-2 text-sm font-semibold text-emerald-200">
+                  <Truck className="h-4 w-4" />
+                  Rotation active
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-900 text-whitepx-4 py-3 text-sm">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-200">Last updated</div>
+                <div className="mt-1 font-medium text-white">{lastUpdatedLabel}</div>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => refetch()}
+                disabled={isFetching}
+                className="border-white/20 bg-white/10 text-white hover:bg-white/15 hover:text-white"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
+                {isFetching ? "Refreshing" : "Refresh"}
+              </Button>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="stats-grid" data-testid="dashboard-stats">
-        {statCards.map((item) => (
-          <button
-            key={item.label}
-            type="button"
-            className={`stat-card text-left ${item.onClick ? "cursor-pointer" : "cursor-default"}`}
-            onClick={item.onClick}
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="metric-meta">{item.label}</div>
-                <div className="metric-value mt-3">{item.value}</div>
-                <div className="mt-2 text-sm text-slate-500">{item.meta}</div>
-              </div>
-              <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${item.tone}`}>
-                <item.icon className="h-5 w-5" />
-              </div>
-            </div>
-            {item.onClick ? (
-              <div className="mt-4 flex items-center gap-2 text-sm font-medium text-amber-700">
-                Review now
-                <ArrowRight className="h-4 w-4" />
-              </div>
-            ) : null}
-          </button>
-        ))}
+      <section className="filter-panel">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="text-sm font-semibold text-slate-900">Dashboard focus</div>
+            <div className="mt-1 text-sm text-slate-500">Show only the metrics needed for the current task.</div>
+          </div>
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-2xl bg-slate-100 p-1.5">
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="sales">Sales</TabsTrigger>
+              <TabsTrigger value="logistics">Logistics</TabsTrigger>
+              <TabsTrigger value="finance">Finance</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.4fr_0.95fr]">
+      {(activeTab === "overview" || activeTab === "sales" || activeTab === "logistics") && (
+        <section className="stats-grid" data-testid="dashboard-stats">
+          {statCards.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              className={`stat-card text-left ${item.onClick ? "cursor-pointer" : "cursor-default"}`}
+              onClick={item.onClick}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="metric-meta">{item.label}</div>
+                  <div className="metric-value mt-3">{item.value}</div>
+                  <div className="mt-2 text-sm text-slate-500">{item.meta}</div>
+                </div>
+                <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${item.tone}`}>
+                  <item.icon className="h-5 w-5" />
+                </div>
+              </div>
+              {item.onClick ? (
+                <div className="mt-4 flex items-center gap-2 text-sm font-medium text-amber-700">
+                  Review now
+                  <ArrowRight className="h-4 w-4" />
+                </div>
+              ) : null}
+            </button>
+          ))}
+        </section>
+      )}
+
+      {(activeTab === "overview" || activeTab === "sales" || activeTab === "logistics") && (
+        <section className="grid gap-6 xl:grid-cols-[1.4fr_0.95fr]">
         <Card className="section-card overflow-hidden">
           <CardHeader className="section-header">
             <div>
@@ -211,7 +277,7 @@ export default function DashboardPage() {
           <CardContent className="p-5">
             <div ref={rotationRef} className="surface-muted h-[340px] px-2 py-3">
               {rotationChartData.length && rotationWidth > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                   <BarChart data={rotationChartData} margin={{ top: 12, right: 8, left: -20, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#dbe2ea" />
                     <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#475569" }} />
@@ -248,9 +314,9 @@ export default function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-5 p-5">
-            <div className="surface-muted h-[240px] px-2 py-3">
-              {gasMix.length ? (
-                <ResponsiveContainer width="100%" height="100%">
+            <div ref={gasMixRef} className="surface-muted h-[240px] px-2 py-3">
+              {gasMix.length && gasMixWidth > 0 ? (
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                   <PieChart>
                     <Pie
                       data={gasMix}
@@ -299,9 +365,11 @@ export default function DashboardPage() {
             </div>
           </CardContent>
         </Card>
-      </section>
+        </section>
+      )}
 
-      <section className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+      {(activeTab === "overview" || activeTab === "sales" || activeTab === "finance" || activeTab === "logistics") && (
+        <section className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <Card className="section-card">
           <CardHeader className="section-header">
             <div>
@@ -353,7 +421,8 @@ export default function DashboardPage() {
         </Card>
 
         <div className="grid gap-6">
-          <Card className="section-card">
+          {(activeTab === "overview" || activeTab === "finance") && (
+            <Card className="section-card">
             <CardHeader className="section-header">
               <div>
                 <CardTitle className="section-title">Collection pressure</CardTitle>
@@ -384,9 +453,11 @@ export default function DashboardPage() {
                 </div>
               </div>
             </CardContent>
-          </Card>
+            </Card>
+          )}
 
-          <Card className="section-card">
+          {(activeTab === "overview" || activeTab === "logistics") && (
+            <Card className="section-card">
             <CardHeader className="section-header">
               <div>
                 <CardTitle className="section-title">Top holding customers</CardTitle>
@@ -413,9 +484,38 @@ export default function DashboardPage() {
                 </div>
               )}
             </CardContent>
-          </Card>
+            </Card>
+          )}
+
+          {activeTab === "sales" && (
+            <Card className="section-card">
+              <CardHeader className="section-header">
+                <div>
+                  <CardTitle className="section-title">Sales pulse</CardTitle>
+                  <p className="section-copy">Quick read of order flow, quantity mix, and follow-up actions.</p>
+                </div>
+                <div className="status-pill status-pill-info">
+                  <LineChart className="mr-1 h-3.5 w-3.5" />
+                  Live sales
+                </div>
+              </CardHeader>
+              <CardContent className="grid gap-4 sm:grid-cols-2">
+                <div className="surface-muted p-4">
+                  <div className="metric-meta">Recent bills</div>
+                  <div className="metric-value mt-2 text-xl">{recentBills.length}</div>
+                  <div className="mt-2 text-sm text-slate-500">Documents visible in current feed.</div>
+                </div>
+                <div className="surface-muted p-4">
+                  <div className="metric-meta">Gas types active</div>
+                  <div className="metric-value mt-2 text-xl">{gasMix.length}</div>
+                  <div className="mt-2 text-sm text-slate-500">Mix shown in current inventory split.</div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
-      </section>
+        </section>
+      )}
     </div>
   );
 }

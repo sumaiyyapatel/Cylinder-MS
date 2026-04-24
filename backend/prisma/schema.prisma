@@ -111,6 +111,7 @@ model Customer {
   alerts       Alert[]           @relation("CustomerAlerts")
   salesBook    SalesBook[]
   account      Account?
+  ledgerEntries LedgerEntry[]
 
   @@map("customers")
 }
@@ -271,6 +272,7 @@ model Bill {
   items    Transaction[]
   challans Challan[]
   payments Payment[]
+  routeTraces DeliveryRouteTrace[]
 
   @@index([customerId, billDate])
   @@index([billDate])
@@ -297,6 +299,7 @@ model EcrRecord {
   createdAt      DateTime  @default(now()) @map("created_at")
 
   customer Customer @relation(fields: [customerId], references: [id])
+  payments Payment[]
 
   @@map("ecr_records")
 }
@@ -341,6 +344,7 @@ model Challan {
 
   customer   Customer @relation(fields: [customerId], references: [id])
   linkedBill Bill?    @relation(fields: [linkedBillId], references: [id])
+  routeTraces DeliveryRouteTrace[]
 
   @@index([linkedBillId])
   @@index([customerId, challanDate])
@@ -375,7 +379,6 @@ model Account {
   customerId Int?      @unique @map("customer_id")
   customer   Customer? @relation(fields: [customerId], references: [id])
 
-  ledgerEntries LedgerEntry[]
   createdAt     DateTime      @default(now()) @map("created_at")
 
   @@map("accounts")
@@ -385,7 +388,7 @@ model LedgerEntry {
   id              Int      @id @default(autoincrement())
   voucherNumber   String   @map("voucher_number")
   voucherDate     DateTime @map("voucher_date")
-  accountId       Int      @map("account_id")
+  partyCode       String?  @map("party_code")
   particular      String?
   narration       String?
   debitAmount     Decimal? @map("debit_amount")
@@ -396,10 +399,10 @@ model LedgerEntry {
   operatorId      Int?     @map("operator_id")
   createdAt       DateTime @default(now()) @map("created_at")
 
-  account Account @relation(fields: [accountId], references: [id])
+  customer Customer? @relation(fields: [partyCode], references: [code])
 
   @@index([voucherNumber])
-  @@index([accountId])
+  @@index([partyCode])
   @@map("ledger_entries")
 }
 
@@ -409,6 +412,7 @@ model Payment {
   voucherDate   DateTime @map("voucher_date")
   customerId    Int      @map("customer_id")
   billId        Int?     @map("bill_id")
+  ecrId         Int?     @map("ecr_id")
   paymentMode   String   @map("payment_mode")
   amount        Decimal
   reference     String?
@@ -417,9 +421,11 @@ model Payment {
 
   customer Customer @relation(fields: [customerId], references: [id])
   bill     Bill?    @relation(fields: [billId], references: [id])
+  ecr      EcrRecord? @relation(fields: [ecrId], references: [id])
 
   @@index([customerId, voucherDate])
   @@index([billId])
+  @@index([ecrId])
   @@map("payments")
 }
 
@@ -436,6 +442,22 @@ model CustomerBalance {
 
   @@index([customerId])
   @@map("customer_balances")
+}
+
+model DeliveryRouteTrace {
+  id         Int      @id @default(autoincrement())
+  billId     Int?     @map("bill_id")
+  challanId  Int?     @map("challan_id")
+  operatorId Int?     @map("operator_id")
+  route      Json
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  bill    Bill?    @relation(fields: [billId], references: [id])
+  challan Challan? @relation(fields: [challanId], references: [id])
+
+  @@index([billId])
+  @@index([challanId])
+  @@map("delivery_route_traces")
 }
 
 model SalesBook {
