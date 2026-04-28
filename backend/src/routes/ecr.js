@@ -13,6 +13,7 @@ const {
   parseRequiredInt,
   parseOptionalNonNegativeNumber,
   parseDate,
+  parseDateRange,
   validateCylinderNumber,
 } = require('../lib/validation');
 const { streamEcrPdf } = require('../services/pdfService');
@@ -26,11 +27,7 @@ router.get('/', authenticate, asyncHandler(async (req, res) => {
   const { customerId, dateFrom, dateTo, page = 1, limit = 50 } = req.query;
   const where = {};
   if (customerId) where.customerId = parseInt(customerId, 10);
-  if (dateFrom || dateTo) {
-    where.ecrDate = {};
-    if (dateFrom) where.ecrDate.gte = new Date(dateFrom);
-    if (dateTo) where.ecrDate.lte = new Date(`${dateTo}T23:59:59Z`);
-  }
+  Object.assign(where, parseDateRange(dateFrom, dateTo, 'ecrDate'));
 
   const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
   const [records, total] = await Promise.all([
@@ -90,7 +87,7 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
       orderBy: { issuedAt: 'desc' },
     });
     if (!holding) {
-      throw new AppError(400, 'No matching issue found for this customer and cylinder');
+      throw new AppError(400, `No active holding for cylinder ${normalizedCylinderNumber} issued to customer ${customerIdNum}`);
     }
 
     // Delegate close-and-create-ECR to cylinderHoldingService

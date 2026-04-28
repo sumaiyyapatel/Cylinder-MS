@@ -87,6 +87,7 @@ export default function PaymentReceiptPage() {
 
   const requiresReference = ["CHEQUE", "BANK_TRANSFER", "UPI"].includes(form.paymentMode);
   const enteredAmount = Number(form.amount || 0);
+  const needsOutstandingRef = outstanding.length > 0 && form.outstandingRef === "GENERAL";
 
   const saveMut = useMutation({
     mutationFn: (payload) => api.post("/payments", payload),
@@ -95,6 +96,9 @@ export default function PaymentReceiptPage() {
       qc.invalidateQueries({ queryKey: ["payment-outstanding"] });
       qc.invalidateQueries({ queryKey: ["payment-balance"] });
       qc.invalidateQueries({ queryKey: ["ledger"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["report-outstanding"] });
+      qc.invalidateQueries({ queryKey: ["report-trial-balance"] });
       setForm(createInitialForm());
       setShowOutstanding(false);
     },
@@ -122,6 +126,11 @@ export default function PaymentReceiptPage() {
 
     if (requiresReference && !form.reference.trim()) {
       toast.error("Reference required for non-cash payment");
+      return;
+    }
+
+    if (needsOutstandingRef) {
+      toast.error("Select the bill or ECR this receipt is settling");
       return;
     }
 
@@ -266,7 +275,9 @@ export default function PaymentReceiptPage() {
                     <SelectValue placeholder="Optional" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="GENERAL">General Receipt</SelectItem>
+                    <SelectItem value="GENERAL">
+                      {outstanding.length ? "Select a bill or ECR" : "General Receipt"}
+                    </SelectItem>
                     {outstanding.map((bill) => (
                       <SelectItem key={`${bill.type}-${bill.billId || bill.ecrId}`} value={`${bill.type}:${bill.billId || bill.ecrId}`}>
                         {bill.refNumber} - Rs. {formatAmount(bill.owing)}
@@ -302,6 +313,9 @@ export default function PaymentReceiptPage() {
                 ) : null}
                 {selectedOutstanding && enteredAmount > Number(selectedOutstanding.owing || 0) ? (
                   <InlineMessage tone="danger">Entered amount is above the selected outstanding value.</InlineMessage>
+                ) : null}
+                {needsOutstandingRef ? (
+                  <InlineMessage tone="warning">This customer has unpaid items. Select the exact bill or ECR before saving.</InlineMessage>
                 ) : null}
               </div>
             </div>
@@ -427,7 +441,7 @@ export default function PaymentReceiptPage() {
               { label: "Mode", value: paymentModes.find((mode) => mode.value === form.paymentMode)?.label || form.paymentMode },
               { label: "Reference", value: form.reference.trim() || "-" },
               { label: "Amount", value: formatAmount(form.amount), emphasis: true },
-              { label: "Against", value: selectedOutstanding?.refNumber || "General Receipt" },
+              { label: "Against", value: selectedOutstanding?.refNumber || (outstanding.length ? "Not selected" : "General Receipt") },
             ]}
             footer={
               <div className="space-y-3">

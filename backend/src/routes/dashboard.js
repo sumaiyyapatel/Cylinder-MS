@@ -1,8 +1,19 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { authenticate } = require('../lib/auth');
+const { getOutstandingReport } = require('../services/reportQueryService');
 
 const router = express.Router();
+
+function asNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+}
+
+function holdDays(issuedAt, asOf = new Date()) {
+  if (!issuedAt) return 0;
+  return Math.max(0, Math.floor((asOf.getTime() - new Date(issuedAt).getTime()) / 86400000));
+}
 
 router.get('/', authenticate, async (req, res) => {
   try {
@@ -11,9 +22,9 @@ router.get('/', authenticate, async (req, res) => {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // Cylinders out today
+    // Cylinder issue rows today. This is the actual movement count, not bill count.
     const cylindersOutToday = await prisma.transaction.count({
-      where: { billDate: { gte: today, lt: tomorrow } },
+      where: { billDate: { gte: today, lt: tomorrow }, cylinderNumber: { not: null } },
     });
 
     // Cylinders returned today
@@ -36,7 +47,13 @@ router.get('/', authenticate, async (req, res) => {
       where: { status: { in: ['HOLDING', 'BILLED'] }, issuedAt: { lt: overdueDate } },
     });
 
-    // Cash collected today (credit amounts from ledger)
+    const billsToday = await prisma.bill.aggregate({
+      where: { billDate: { gte: today, lt: tomorrow } },
+      _count: { _all: true },
+      _sum: { totalAmount: true, totalCylinders: true },
+    });
+
+    // Cash collected today (credit amounts from receipt ledger entries)
     const cashToday = await prisma.ledgerEntry.aggregate({
       where: {
         voucherDate: { gte: today, lt: tomorrow },
@@ -45,10 +62,12 @@ router.get('/', authenticate, async (req, res) => {
       _sum: { creditAmount: true },
     });
 
-    // Outstanding payments
-    const totalDebit = await prisma.ledgerEntry.aggregate({ _sum: { debitAmount: true } });
-    const totalCredit = await prisma.ledgerEntry.aggregate({ _sum: { creditAmount: true } });
-    const outstanding = parseFloat(totalDebit._sum.debitAmount || 0) - parseFloat(totalCredit._sum.creditAmount || 0);
+    const outstandingRows = await getOutstandingReport(prisma);
+    const outstanding = outstandingRows.reduce((sum, row) => sum + Number(row.balance || 0), 0);
+    const topOutstanding = outstandingRows
+      .slice()
+      .sort((a, b) => Number(b.balance || 0) - Number(a.balance || 0))
+      .slice(0, 5);
 
     // Cylinder status summary
     const cylindersByStatus = await prisma.cylinder.groupBy({
@@ -98,20 +117,63 @@ router.get('/', authenticate, async (req, res) => {
       })
     );
 
+    const [recentBills, overdueHoldings, unresolvedAlerts] = await Promise.all([
+      prisma.bill.findMany({
+        take: 8,
+        orderBy: [{ billDate: 'desc' }, { id: 'desc' }],
+        select: {
+          id: true,
+          billNumber: true,
+          billDate: true,
+          totalCylinders: true,
+          totalQuantity: true,
+          totalAmount: true,
+          customer: { select: { code: true, name: true } },
+        },
+      }),
+      prisma.cylinderHolding.findMany({
+        take: 8,
+        where: { status: { in: ['HOLDING', 'BILLED'] }, issuedAt: { lt: overdueDate } },
+        orderBy: { issuedAt: 'asc' },
+        select: {
+          id: true,
+          issuedAt: true,
+          status: true,
+          customer: { select: { code: true, name: true } },
+          cylinder: { select: { cylinderNumber: true, gasCode: true, ownerCode: true } },
+        },
+      }),
+      prisma.alert.count({ where: { isResolved: false } }),
+    ]);
+
     res.json({
       stats: {
         cylindersOutToday,
         cylindersReturnedToday,
-        cashCollectedToday: parseFloat(cashToday._sum.creditAmount || 0),
+        billsToday: billsToday._count._all,
+        salesToday: asNumber(billsToday._sum.totalAmount),
+        billedCylindersToday: asNumber(billsToday._sum.totalCylinders),
+        cashCollectedToday: asNumber(cashToday._sum.creditAmount),
         pendingEcrs,
         overdueCylinders,
         outstandingPayments: outstanding,
+        unresolvedAlerts,
       },
       cylindersByStatus: cylindersByStatus.map(s => ({ status: s.status, count: s._count })),
       cylindersByGas: cylindersByGas.map(g => ({ gasCode: g.gasCode, count: g._count })),
       dailyIssues: dailyIssues.map(d => ({ date: d.date, count: d.count })),
       dailyReturns: dailyReturns.map(d => ({ date: d.date, count: d.count })),
       topCustomers: topCustomerDetails,
+      topOutstanding,
+      recentBills: recentBills.map((bill) => ({
+        ...bill,
+        totalQuantity: asNumber(bill.totalQuantity),
+        totalAmount: asNumber(bill.totalAmount),
+      })),
+      overdueHoldings: overdueHoldings.map((holding) => ({
+        ...holding,
+        holdDays: holdDays(holding.issuedAt),
+      })),
     });
   } catch (err) {
     console.error('Dashboard error:', err);

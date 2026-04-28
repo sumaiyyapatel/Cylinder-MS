@@ -4,8 +4,17 @@ const { authenticate, authorize } = require('../lib/auth');
 const asyncHandler = require('../middleware/asyncHandler');
 const { AppError } = require('../middleware/errorHandler');
 const { createAuditLog } = require('../services/auditService');
+const { validateGstin } = require('../lib/validation');
 
 const router = express.Router();
+
+function normalizeCustomerPayload(payload) {
+  const data = { ...payload };
+  if (Object.prototype.hasOwnProperty.call(data, 'gstin')) {
+    data.gstin = validateGstin(data.gstin);
+  }
+  return data;
+}
 
 // GET /api/customers
 router.get('/', authenticate, asyncHandler(async (req, res) => {
@@ -44,13 +53,13 @@ router.get('/:id', authenticate, asyncHandler(async (req, res) => {
 
 // POST /api/customers
 router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
-  const customer = await prisma.customer.create({ data: { ...req.body, isActive: true } });
+  const customer = await prisma.customer.create({ data: { ...normalizeCustomerPayload(req.body), isActive: true } });
   res.status(201).json(customer);
 }));
 
 // PUT /api/customers/:id
 router.put('/:id', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
-  const customer = await prisma.customer.update({ where: { id: parseInt(req.params.id, 10) }, data: req.body });
+  const customer = await prisma.customer.update({ where: { id: parseInt(req.params.id, 10) }, data: normalizeCustomerPayload(req.body) });
   res.json(customer);
 }));
 

@@ -12,6 +12,16 @@ function getFinancialYearCode(date = new Date()) {
   return `${String(fyStartYear).slice(-2)}-${String(fyEndYear).slice(-2)}`;
 }
 
+function getFinancialYearBounds(date = new Date()) {
+  const dt = new Date(date);
+  const year = dt.getFullYear();
+  const fyStartYear = dt.getMonth() >= 3 ? year : year - 1;
+  return {
+    start: new Date(Date.UTC(fyStartYear, 3, 1, 0, 0, 0, 0)),
+    end: new Date(Date.UTC(fyStartYear + 1, 2, 31, 23, 59, 59, 999)),
+  };
+}
+
 function atStartOfDay(date) {
   const dt = new Date(date);
   dt.setHours(0, 0, 0, 0);
@@ -128,6 +138,7 @@ function calculateGstBreakup(taxableAmount, gstRate, gstMode) {
 
 module.exports = {
   getFinancialYearCode,
+  getFinancialYearBounds,
   calculateHoldDays,
   round2,
   normalizeOwnerCode,

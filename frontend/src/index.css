@@ -58,8 +58,30 @@
     --radius: 0.75rem;
   }
 
+  :root.dark {
+    --background: 222 35% 10%;
+    --foreground: 210 20% 96%;
+    --card: 222 30% 13%;
+    --card-foreground: 210 20% 96%;
+    --popover: 222 30% 13%;
+    --popover-foreground: 210 20% 96%;
+    --muted: 221 25% 18%;
+    --muted-foreground: 214 12% 70%;
+    --accent: 221 25% 18%;
+    --accent-foreground: 210 20% 96%;
+    --border: 221 22% 24%;
+    --input: 221 22% 24%;
+    --ring: 33 90% 50%;
+    --chart-1: 38 92% 58%;
+    --chart-2: 160 84% 39%;
+    --chart-3: 217 91% 60%;
+    --chart-4: 0 84% 60%;
+    --chart-5: 280 75% 65%;
+  }
+
   * {
     @apply border-border;
+    min-width: 0;
   }
 
   html {
@@ -72,12 +94,19 @@
     min-height: 100vh;
     font-family: var(--font-body);
     font-size: 14px;
-    line-height: 1.55;
+    line-height: 1.45;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     background:
       radial-gradient(circle at top left, rgba(217, 119, 6, 0.08), transparent 28%),
       linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+    overflow-wrap: anywhere;
+  }
+
+  :root.dark body {
+    background:
+      radial-gradient(circle at top left, rgba(217, 119, 6, 0.12), transparent 25%),
+      linear-gradient(180deg, #0f172a 0%, #111827 100%);
   }
 
   h1,
@@ -88,7 +117,7 @@
   h6,
   .title-font {
     font-family: var(--font-heading);
-    letter-spacing: -0.02em;
+    letter-spacing: 0;
   }
 
   code,
@@ -132,13 +161,19 @@
       linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(243, 244, 246, 0.95));
   }
 
+  :root.dark .app-shell {
+    background:
+      radial-gradient(circle at top right, rgba(217, 119, 6, 0.1), transparent 28%),
+      linear-gradient(180deg, rgba(15, 23, 42, 0.8), rgba(17, 24, 39, 0.95));
+  }
+
   .page-shell {
-    @apply space-y-6;
+    @apply space-y-4;
     animation: slide-up 0.35s ease-out;
   }
 
   .page-header {
-    @apply rounded-3xl border border-white/70 p-5 shadow-sm lg:p-7;
+    @apply rounded-lg border border-white/70 p-4 shadow-sm lg:p-5;
     background:
       linear-gradient(135deg, rgba(30, 58, 95, 0.98), rgba(20, 38, 63, 0.94)),
       radial-gradient(circle at top right, rgba(217, 119, 6, 0.24), transparent 35%);
@@ -150,37 +185,41 @@
   }
 
   .page-title {
-    @apply mt-2 text-3xl font-bold sm:text-4xl;
+    @apply mt-1.5 text-xl font-bold sm:text-2xl;
+    overflow-wrap: anywhere;
   }
 
   .page-subtitle {
-    @apply mt-2 max-w-3xl text-sm text-slate-200 sm:text-[15px];
+    @apply mt-1.5 max-w-3xl text-sm text-slate-200;
+    overflow-wrap: anywhere;
   }
 
  .section-card {
-  @apply rounded-2xl border border-border bg-card shadow-sm backdrop-blur-sm;
+  @apply rounded-lg border border-border bg-card shadow-sm backdrop-blur-sm;
   animation: slide-up 0.4s ease-out;
 }
 
  .section-header {
-    @apply flex flex-col gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between;
+    @apply flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between;
   }
   .section-title {
-    @apply text-lg font-semibold text-slate-900;
+    @apply text-base font-semibold text-slate-900;
     font-family: var(--font-heading);
+    overflow-wrap: anywhere;
   }
 
    .section-copy {
     @apply text-sm text-muted-foreground;
+    overflow-wrap: anywhere;
   }
 
   .stats-grid {
-    @apply grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4;
+    @apply grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4;
   }
 
   .stat-card {
-    @apply relative overflow-hidden rounded-2xl border border-white/80  p-4 shadow-sm transition-all duration-200;
-  background-color: #14263f;}
+    @apply relative overflow-hidden rounded-lg border border-white/80 bg-card p-3 shadow-sm transition-all duration-200;
+  }
 
   .stat-card:hover {
     transform: translateY(-2px);
@@ -189,7 +228,8 @@
 
   .metric-value {
     font-family: var(--font-heading);
-    @apply text-2xl font-bold text-foreground;
+    @apply text-xl font-bold text-foreground;
+    overflow-wrap: anywhere;
   }
   .metric-meta {
     @apply text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground;
@@ -202,6 +242,8 @@
 
   .status-pill {
     @apply inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em];
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
 
   .status-pill-success {
@@ -221,7 +263,7 @@
   }
 
    .data-table-shell {
-    @apply overflow-hidden rounded-2xl border border-border bg-card shadow-sm;
+    @apply overflow-hidden rounded-lg border border-border bg-card shadow-sm;
   }
 
   .data-table-wrap {
@@ -230,6 +272,7 @@
 
   .data-table {
     @apply w-full border-collapse text-sm;
+    table-layout: auto;
   }
 
   .data-table thead tr {
@@ -237,12 +280,16 @@
   }
 
   .data-table th {
-    @apply px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-100;
+    @apply px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-100;
+    max-width: 220px;
+    overflow-wrap: anywhere;
   }
 
     .data-table td {
-    @apply px-4 py-3 align-middle text-foreground;
+    @apply px-3 py-2 align-middle text-foreground;
     border-bottom: 1px solid hsl(var(--border));
+    max-width: 280px;
+    overflow-wrap: anywhere;
   }
 
   .data-table tbody tr {
@@ -250,15 +297,23 @@
   }
 
  .data-table tbody tr:hover {
-    background: hsl(var(--muted));
+    background: color-mix(in srgb, hsl(var(--muted)) 74%, hsl(var(--primary)) 8%);
   }
 
   .filter-panel {
-    @apply rounded-2xl border border-border bg-card p-4 shadow-sm backdrop-blur-sm;
+    @apply rounded-lg border border-border bg-card p-3 shadow-sm backdrop-blur-sm;
   }
 
   .surface-muted {
-    @apply rounded-2xl border border-border bg-muted;
+    @apply rounded-lg border border-border bg-muted;
+    overflow-wrap: anywhere;
+  }
+
+  .filter-panel,
+  .section-card,
+  .stat-card,
+  .data-table-shell {
+    min-width: 0;
   }
 
 
@@ -340,83 +395,83 @@
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: 222 35% 10%;
-    --foreground: 210 20% 96%;
-    --card: 222 30% 13%;
-    --card-foreground: 210 20% 96%;
-    --muted: 221 25% 18%;
-    --muted-foreground: 214 12% 70%;
-    --border: 221 22% 24%;
-    --input: 221 22% 24%;
-  }
+:root.dark .section-card,
+:root.dark .filter-panel,
+:root.dark .data-table-shell {
+  background: rgba(17, 24, 39, 0.92);
+  border-color: rgba(51, 65, 85, 0.9);
+}
 
-  body {
-    background:
-      radial-gradient(circle at top left, rgba(217, 119, 6, 0.12), transparent 25%),
-      linear-gradient(180deg, #0f172a 0%, #111827 100%);
-  }
+:root.dark .text-slate-900,
+:root.dark .text-slate-800 {
+  color: #f8fafc !important;
+}
 
-  .app-shell {
-    background:
-      radial-gradient(circle at top right, rgba(30, 58, 95, 0.12), transparent 28%),
-      linear-gradient(180deg, rgba(15, 23, 42, 0.8), rgba(17, 24, 39, 0.95));
-  }
+:root.dark .text-slate-700 {
+  color: #f1f5f9 !important;
+}
 
-  .section-card,
-  .filter-panel,
-  .data-table-shell {
-    background: rgba(17, 24, 39, 0.9);
-    border-color: rgba(51, 65, 85, 0.9);
-  }
+:root.dark .text-slate-600 {
+  color: #e2e8f0 !important;
+}
 
-  /* Fix hardcoded light-mode Tailwind classes for Dark Mode */
-  .text-slate-900,
-  .text-slate-800 {
-    color: #f8fafc !important;
-  }
+:root.dark .text-slate-500 {
+  color: #cbd5e1 !important;
+}
 
-  .text-slate-700 {
-    color: #f1f5f9 !important;
-  }
+:root.dark .bg-slate-50 {
+  background-color: rgba(30, 41, 59, 0.65) !important;
+}
 
-  .text-slate-600 {
-    color: #e2e8f0 !important;
-  }
+:root.dark .bg-slate-100 {
+  background-color: rgba(51, 65, 85, 0.65) !important;
+}
 
-  .text-slate-500 {
-    color: #cbd5e1 !important;
-  }
+:root.dark .bg-white {
+  background-color: rgba(15, 23, 42, 0.74) !important;
+}
 
-  .bg-slate-50 {
-    background-color: rgba(30, 41, 59, 0.6) !important;
-  }
+:root.dark .border-slate-100 {
+  border-color: rgba(51, 65, 85, 0.5) !important;
+}
 
-  .bg-slate-100 {
-    background-color: rgba(51, 65, 85, 0.6) !important;
-  }
+:root.dark .border-slate-200 {
+  border-color: rgba(71, 85, 105, 0.55) !important;
+}
 
-  .bg-white {
-    background-color: rgba(15, 23, 42, 0.6) !important;
-  }
+:root.dark .data-table td {
+  color: #e2e8f0 !important;
+  border-color: rgba(51, 65, 85, 0.65) !important;
+}
 
-  .border-slate-100 {
-    border-color: rgba(51, 65, 85, 0.5) !important;
-  }
+:root.dark .data-table tbody tr:hover {
+  background: rgba(51, 65, 85, 0.72) !important;
+}
 
-  .border-slate-200 {
-    border-color: rgba(71, 85, 105, 0.5) !important;
-  }
+:root.dark .data-table tbody tr:hover td {
+  color: #f8fafc !important;
+}
 
-  .data-table td {
-    color: #e2e8f0 !important;
-    border-color: rgba(51, 65, 85, 0.6) !important;
-  }
+:root.dark table tbody tr:hover {
+  background-color: rgba(51, 65, 85, 0.72) !important;
+}
 
-  .data-table tbody tr:hover {
-    background: rgba(30, 41, 59, 0.8) !important;
-  }
+:root.dark table tbody tr:hover td {
+  color: #f8fafc !important;
+}
+
+:root.dark table tbody tr:hover .text-slate-500,
+:root.dark table tbody tr:hover .text-slate-600,
+:root.dark table tbody tr:hover .text-slate-700 {
+  color: #e2e8f0 !important;
+}
+
+:root.dark table tbody tr:hover .hover\:text-blue-600:hover {
+  color: #93c5fd !important;
+}
+
+:root.dark table tbody tr:hover .hover\:text-red-600:hover {
+  color: #fca5a5 !important;
 }
 
 @media print {

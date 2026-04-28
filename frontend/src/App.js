@@ -19,6 +19,7 @@ import PaymentReceiptPage from "@/pages/accounting/PaymentReceiptPage";
 import DebitNotePage from "@/pages/accounting/DebitNotePage";
 import CreditNotePage from "@/pages/accounting/CreditNotePage";
 import ReportsPage from "@/pages/reports/ReportsPage";
+import NotificationsPage from "@/pages/notifications/NotificationsPage";
 import SettingsPage from "@/pages/settings/SettingsPage";
 import UsersPage from "@/pages/settings/UsersPage";
 import AppLayout from "@/components/layout/AppLayout";
@@ -28,7 +29,7 @@ function ProtectedRoute({ children }) {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[linear-gradient(135deg,#14263f_0%,#1e3a5f_45%,#0f172a_100%)]">
-        <div className="rounded-3xl border border-white/10 bg-white/10 px-8 py-7 text-center text-white backdrop-blur">
+        <div className="rounded-lg border border-white/10 bg-white/10 px-8 py-7 text-center text-white backdrop-blur">
           <div className="mx-auto h-9 w-9 animate-spin rounded-full border-b-2 border-amber-400" />
           <div className="mt-3 text-sm font-medium text-slate-100">Loading workspace...</div>
         </div>
@@ -44,7 +45,7 @@ function AppRoutes() {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[linear-gradient(135deg,#14263f_0%,#1e3a5f_45%,#0f172a_100%)]">
-        <div className="rounded-3xl border border-white/10 bg-white/10 px-8 py-7 text-center text-white backdrop-blur">
+        <div className="rounded-lg border border-white/10 bg-white/10 px-8 py-7 text-center text-white backdrop-blur">
           <div className="mx-auto h-9 w-9 animate-spin rounded-full border-b-2 border-amber-400" />
           <div className="mt-3 text-sm font-medium text-slate-100">Loading routes...</div>
         </div>
@@ -77,7 +78,11 @@ function AppRoutes() {
         <Route path="accounting/payment-receipt" element={<PaymentReceiptPage />} />
         <Route path="accounting/debit-note" element={<DebitNotePage />} />
         <Route path="accounting/credit-note" element={<CreditNotePage />} />
-        <Route path="reports" element={<ReportsPage />} />
+        <Route path="notifications" element={<NotificationsPage />} />
+        <Route path="reports" element={<Navigate to="/reports/operations" replace />} />
+        <Route path="reports/operations" element={<ReportsPage reportCategory="operations" />} />
+        <Route path="reports/sales" element={<ReportsPage reportCategory="sales" />} />
+        <Route path="reports/accounting" element={<ReportsPage reportCategory="accounting" />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="users" element={<UsersPage />} />
       </Route>

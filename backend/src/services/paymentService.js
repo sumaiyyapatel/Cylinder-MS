@@ -1,5 +1,5 @@
 const { AppError } = require('../middleware/errorHandler');
-const { round2 } = require('./businessRules');
+const { getFinancialYearBounds, round2 } = require('./businessRules');
 const { generateLedgerVoucherNumber } = require('./numberingService');
 const { buildReceiptEntries } = require('./ledgerValidationService');
 const { postLedgerEntries } = require('./ledgerPostingService');
@@ -130,6 +130,10 @@ async function recordPayment(tx, {
   }
 
   const outstanding = await getCustomerOutstanding(tx, customerId);
+  if (!bill && !ecr && outstanding.length > 0) {
+    throw new AppError(409, 'Select the bill or ECR this receipt is settling');
+  }
+
   if (bill) {
     const billOutstanding = outstanding.find((item) => item.type === 'BILL' && item.billId === bill.id);
     const owing = billOutstanding?.owing || 0;
@@ -227,12 +231,14 @@ async function recordPayment(tx, {
 
 async function updateCustomerBalance(tx, customerId, asOf) {
   const customer = await getCustomerOrThrow(tx, customerId);
+  const fy = getFinancialYearBounds(asOf);
   const totals = await tx.$queryRaw`
     SELECT
       COALESCE(SUM(COALESCE(debit_amount, 0)), 0)::numeric AS "totalDebit",
       COALESCE(SUM(COALESCE(credit_amount, 0)), 0)::numeric AS "totalCredit"
     FROM ledger_entries
     WHERE party_code = ${customer.code}
+      AND voucher_date >= ${fy.start}
       AND voucher_date <= ${asOf}
   `;
 
@@ -300,7 +306,9 @@ async function getCustomerBalance(tx, customerId) {
   `;
 
   const row = rows[0];
-  if (!row) throw new AppError(404, 'Balance not found');
+  if (!row) {
+    return updateCustomerBalance(tx, customerId, new Date());
+  }
 
   return {
     id: row.id,

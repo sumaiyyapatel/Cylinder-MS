@@ -4,6 +4,7 @@ const { authenticate } = require('../lib/auth');
 const { runReconciliation, validateHoldingRents, findOrphanedHoldings, auditBillToEcrMatching } = require('../services/reconciliationService');
 const { createAuditLog } = require('../services/auditService');
 const { sendReportPdf, formatAmount, formatDate } = require('../services/reportPdfService');
+const { parseDateRange } = require('../lib/validation');
 const {
   getAgeAnalysisOutstandingReport,
   getBookReport,
@@ -435,7 +436,7 @@ router.get('/holding-statement', authenticate, async (req, res) => {
 
     res.json(Object.values(grouped));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -445,25 +446,24 @@ router.get('/customer-statement', authenticate, async (req, res) => {
     const { customerId, dateFrom, dateTo } = req.query;
     if (!customerId) return res.status(400).json({ error: 'Customer ID required' });
 
-    const dateFilter = {};
-    if (dateFrom) dateFilter.gte = new Date(dateFrom);
-    if (dateTo) dateFilter.lte = new Date(dateTo + 'T23:59:59Z');
+    const billDateWhere = parseDateRange(dateFrom, dateTo, 'billDate');
+    const ecrDateWhere = parseDateRange(dateFrom, dateTo, 'ecrDate');
 
     const [customer, issues, returns] = await Promise.all([
       prisma.customer.findUnique({ where: { id: parseInt(customerId) } }),
       prisma.transaction.findMany({
-        where: { customerId: parseInt(customerId), ...(Object.keys(dateFilter).length ? { billDate: dateFilter } : {}) },
+        where: { customerId: parseInt(customerId), ...billDateWhere },
         orderBy: { billDate: 'asc' },
       }),
       prisma.ecrRecord.findMany({
-        where: { customerId: parseInt(customerId), ...(Object.keys(dateFilter).length ? { ecrDate: dateFilter } : {}) },
+        where: { customerId: parseInt(customerId), ...ecrDateWhere },
         orderBy: { ecrDate: 'asc' },
       }),
     ]);
 
     res.json({ customer, issues, returns });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -491,7 +491,7 @@ router.get('/daily-report', authenticate, async (req, res) => {
 
     res.json({ date: reportDate, issues, returns });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -502,11 +502,7 @@ router.get('/sale-transactions', authenticate, async (req, res) => {
     const where = {};
     if (customerId) where.customerId = parseInt(customerId);
     if (gasCode) where.gasCode = gasCode;
-    if (dateFrom || dateTo) {
-      where.billDate = {};
-      if (dateFrom) where.billDate.gte = new Date(dateFrom);
-      if (dateTo) where.billDate.lte = new Date(dateTo + 'T23:59:59Z');
-    }
+    Object.assign(where, parseDateRange(dateFrom, dateTo, 'billDate'));
 
     const transactions = await prisma.transaction.findMany({
       where,
@@ -516,47 +512,16 @@ router.get('/sale-transactions', authenticate, async (req, res) => {
 
     res.json(transactions);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
 // Trial Balance
 router.get('/trial-balance', authenticate, async (req, res) => {
   try {
-    const { dateFrom, dateTo } = req.query;
-    const where = {};
-    if (dateFrom || dateTo) {
-      where.voucherDate = {};
-      if (dateFrom) where.voucherDate.gte = new Date(dateFrom);
-      if (dateTo) where.voucherDate.lte = new Date(dateTo + 'T23:59:59Z');
-    }
-
-    const entries = await prisma.ledgerEntry.groupBy({
-      by: ['partyCode'],
-      where,
-      _sum: { debitAmount: true, creditAmount: true },
-    });
-
-    const partyCodes = [...new Set(entries.map(e => e.partyCode).filter(Boolean))];
-    const customers = partyCodes.length
-      ? await prisma.customer.findMany({
-          where: { code: { in: partyCodes } },
-          select: { code: true, name: true },
-        })
-      : [];
-    const customerMap = new Map(customers.map(c => [c.code, c.name]));
-
-    const result = entries.map((e) => ({
-      partyCode: e.partyCode,
-      partyName: customerMap.get(e.partyCode) || e.partyCode,
-      debit: parseFloat(e._sum.debitAmount || 0),
-      credit: parseFloat(e._sum.creditAmount || 0),
-      balance: parseFloat(e._sum.debitAmount || 0) - parseFloat(e._sum.creditAmount || 0),
-    }));
-
-    res.json(result);
+    res.json(await getTrialBalanceReport(prisma, req.query));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -603,7 +568,7 @@ router.get('/cylinder-rotation', authenticate, async (req, res) => {
 
     res.json(Object.values(grouped));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -613,11 +578,7 @@ router.get('/party-rental', authenticate, async (req, res) => {
     const { customerId, dateFrom, dateTo } = req.query;
     const where = {};
     if (customerId) where.customerId = parseInt(customerId);
-    if (dateFrom || dateTo) {
-      where.ecrDate = {};
-      if (dateFrom) where.ecrDate.gte = new Date(dateFrom);
-      if (dateTo) where.ecrDate.lte = new Date(dateTo + 'T23:59:59Z');
-    }
+    Object.assign(where, parseDateRange(dateFrom, dateTo, 'ecrDate'));
 
     const ecrs = await prisma.ecrRecord.findMany({
       where,
@@ -643,7 +604,7 @@ router.get('/party-rental', authenticate, async (req, res) => {
 
     res.json(Object.values(grouped));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -652,11 +613,7 @@ router.get('/cash-book', authenticate, async (req, res) => {
   try {
     const { dateFrom, dateTo } = req.query;
     const where = { transactionType: { in: ['CASH_RECEIPT', 'CASH_PAYMENT'] } };
-    if (dateFrom || dateTo) {
-      where.voucherDate = {};
-      if (dateFrom) where.voucherDate.gte = new Date(dateFrom);
-      if (dateTo) where.voucherDate.lte = new Date(dateTo + 'T23:59:59Z');
-    }
+    Object.assign(where, parseDateRange(dateFrom, dateTo, 'voucherDate'));
     const entries = await prisma.ledgerEntry.findMany({
       where, orderBy: { voucherDate: 'asc' },
       include: { customer: { select: { code: true, name: true } } },
@@ -668,7 +625,7 @@ router.get('/cash-book', authenticate, async (req, res) => {
     });
     res.json(withBal);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -677,11 +634,7 @@ router.get('/bank-book', authenticate, async (req, res) => {
   try {
     const { dateFrom, dateTo } = req.query;
     const where = { transactionType: { in: ['BANK_RECEIPT', 'BANK_PAYMENT'] } };
-    if (dateFrom || dateTo) {
-      where.voucherDate = {};
-      if (dateFrom) where.voucherDate.gte = new Date(dateFrom);
-      if (dateTo) where.voucherDate.lte = new Date(dateTo + 'T23:59:59Z');
-    }
+    Object.assign(where, parseDateRange(dateFrom, dateTo, 'voucherDate'));
     const entries = await prisma.ledgerEntry.findMany({
       where, orderBy: { voucherDate: 'asc' },
       include: { customer: { select: { code: true, name: true } } },
@@ -693,7 +646,7 @@ router.get('/bank-book', authenticate, async (req, res) => {
     });
     res.json(withBal);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -702,58 +655,23 @@ router.get('/journal-book', authenticate, async (req, res) => {
   try {
     const { dateFrom, dateTo } = req.query;
     const where = { transactionType: { in: ['JOURNAL', 'CONTRA', 'DEBIT_NOTE', 'CREDIT_NOTE'] } };
-    if (dateFrom || dateTo) {
-      where.voucherDate = {};
-      if (dateFrom) where.voucherDate.gte = new Date(dateFrom);
-      if (dateTo) where.voucherDate.lte = new Date(dateTo + 'T23:59:59Z');
-    }
+    Object.assign(where, parseDateRange(dateFrom, dateTo, 'voucherDate'));
     const entries = await prisma.ledgerEntry.findMany({
       where, orderBy: { voucherDate: 'asc' },
       include: { customer: { select: { code: true, name: true } } },
     });
     res.json(entries);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
 // Outstanding Payments
 router.get('/outstanding', authenticate, async (req, res) => {
   try {
-    const entries = await prisma.ledgerEntry.groupBy({
-      by: ['partyCode'],
-      _sum: { debitAmount: true, creditAmount: true },
-    });
-
-    const filteredEntries = entries.filter(e => e.partyCode);
-    const partyCodes = [...new Set(filteredEntries.map(e => e.partyCode))];
-    const customers = partyCodes.length
-      ? await prisma.customer.findMany({
-          where: { code: { in: partyCodes } },
-          select: { code: true, name: true, phone: true },
-        })
-      : [];
-    const customerMap = new Map(customers.map(c => [c.code, c]));
-
-    const result = filteredEntries.map((e) => {
-      const balance = parseFloat(e._sum.debitAmount || 0) - parseFloat(e._sum.creditAmount || 0);
-      if (Math.abs(balance) < 0.01) return null;
-
-      const cust = customerMap.get(e.partyCode);
-      return {
-        partyCode: e.partyCode,
-        partyName: cust?.name || e.partyCode,
-        phone: cust?.phone,
-        debit: parseFloat(e._sum.debitAmount || 0),
-        credit: parseFloat(e._sum.creditAmount || 0),
-        balance,
-        type: balance > 0 ? 'RECEIVABLE' : 'PAYABLE',
-      };
-    });
-
-    res.json(result.filter(Boolean).sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance)));
+    res.json(await getOutstandingReport(prisma));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -762,11 +680,7 @@ router.get('/sales-summary', authenticate, async (req, res) => {
   try {
     const { dateFrom, dateTo } = req.query;
     const where = {};
-    if (dateFrom || dateTo) {
-      where.billDate = {};
-      if (dateFrom) where.billDate.gte = new Date(dateFrom);
-      if (dateTo) where.billDate.lte = new Date(dateTo + 'T23:59:59Z');
-    }
+    Object.assign(where, parseDateRange(dateFrom, dateTo, 'billDate'));
 
     // By gas type
     const byGas = await prisma.transaction.groupBy({
@@ -795,7 +709,7 @@ router.get('/sales-summary', authenticate, async (req, res) => {
       totalBills: byGas.reduce((s, g) => s + extractCount(g._count), 0),
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -829,7 +743,7 @@ router.get('/holding-all-party', authenticate, async (req, res) => {
 
     res.json(Object.values(grouped));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -892,7 +806,7 @@ router.get('/holding-party-status', authenticate, async (req, res) => {
 
     res.json(Object.values(grouped));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -902,7 +816,7 @@ router.get('/issue-without-purchase', authenticate, async (req, res) => {
     const result = await getIssueWithoutPurchaseReport(prisma, req.query);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -912,7 +826,7 @@ router.get('/sale-return', authenticate, async (req, res) => {
     const result = await getSaleReturnReport(prisma, req.query);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -922,7 +836,7 @@ router.get('/sale-return-summary', authenticate, async (req, res) => {
     const result = await getSaleReturnSummaryReport(prisma, req.query);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -1002,7 +916,7 @@ router.get('/age-analysis-ledger', authenticate, async (req, res) => {
       },
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -1012,7 +926,7 @@ router.get('/age-analysis-outstanding', authenticate, async (req, res) => {
     const result = await getAgeAnalysisOutstandingReport(prisma, req.query);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -1023,7 +937,7 @@ router.get('/reconciliation', authenticate, async (req, res) => {
     const result = await runReconciliation(prisma, { customerId, gasCode, ownerCode });
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -1034,7 +948,7 @@ router.get('/reconciliation/holding-rents', authenticate, async (req, res) => {
     const result = await validateHoldingRents(prisma, customerId ? parseInt(customerId, 10) : null);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -1045,7 +959,7 @@ router.get('/reconciliation/orphaned-holdings', authenticate, async (req, res) =
     const result = await findOrphanedHoldings(prisma, { daysThreshold: days });
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -1057,7 +971,7 @@ router.get('/reconciliation/bill/:billId', authenticate, async (req, res) => {
     const result = await auditBillToEcrMatching(prisma, billId);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 

@@ -309,6 +309,7 @@ model CylinderHolding {
   cylinderId    Int           @map("cylinder_id")
   customerId    Int           @map("customer_id")
   transactionId Int?          @map("transaction_id")
+  challanId     Int?          @map("challan_id")
   issuedAt      DateTime      @map("issued_at")
   returnedAt    DateTime?     @map("returned_at")
   holdDays      Int?          @map("hold_days")
@@ -320,9 +321,11 @@ model CylinderHolding {
   cylinder    Cylinder     @relation(fields: [cylinderId], references: [id])
   customer    Customer     @relation(fields: [customerId], references: [id])
   transaction Transaction? @relation(fields: [transactionId], references: [id])
+  challan     Challan?     @relation(fields: [challanId], references: [id])
 
   @@index([status, issuedAt])
   @@index([customerId, status])
+  @@index([challanId])
   @@map("cylinder_holdings")
 }
 
@@ -345,6 +348,7 @@ model Challan {
   customer   Customer @relation(fields: [customerId], references: [id])
   linkedBill Bill?    @relation(fields: [linkedBillId], references: [id])
   routeTraces DeliveryRouteTrace[]
+  holdings CylinderHolding[]
 
   @@index([linkedBillId])
   @@index([customerId, challanDate])

@@ -27,23 +27,23 @@ export function WorkflowSection({
   children,
 }) {
   return (
-    <section className={cn("rounded-3xl border border-border bg-card shadow-sm", className)}>
-      <div className="flex flex-col gap-4 border-b border-border px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+    <section className={cn("rounded-lg border border-border bg-card shadow-sm", className)}>
+      <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[rgba(30,58,95,0.1)] text-[var(--color-steel)]">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[rgba(30,58,95,0.1)] text-[var(--color-steel)]">
             {Icon ? <Icon className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
           </div>
           <div className="min-w-0">
             <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
               Step {step}
             </div>
-            <h2 className="mt-1 text-lg font-semibold text-foreground">{title}</h2>
+            <h2 className="mt-1 text-base font-semibold text-foreground">{title}</h2>
             {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
           </div>
         </div>
         {headerRight ? <div className="shrink-0">{headerRight}</div> : null}
       </div>
-      <div className={cn("px-5 py-5", contentClassName)}>{children}</div>
+      <div className={cn("px-4 py-4", contentClassName)}>{children}</div>
     </section>
   );
 }
@@ -60,14 +60,14 @@ export function SummaryPanel({
   return (
     <aside
       className={cn(
-        "rounded-3xl border px-5 py-5 shadow-sm",
+        "rounded-lg border px-4 py-4 shadow-sm",
         summaryToneClasses[tone] || summaryToneClasses.default,
         className
       )}
     >
       <div className="flex items-start gap-3">
         {Icon ? (
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white/70">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/70">
             <Icon className="h-5 w-5" />
           </div>
         ) : null}
@@ -78,12 +78,12 @@ export function SummaryPanel({
       </div>
 
       {rows.length ? (
-        <div className="mt-5 space-y-3">
+        <div className="mt-4 space-y-2">
           {rows.map((row) => (
             <div
               key={row.label}
               className={cn(
-                "flex items-center justify-between gap-4 rounded-2xl border border-border bg-muted/60 px-3 py-2.5",
+                "flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/60 px-3 py-2",
                 row.className
               )}
             >
@@ -96,7 +96,7 @@ export function SummaryPanel({
         </div>
       ) : null}
 
-      {footer ? <div className="mt-5">{footer}</div> : null}
+      {footer ? <div className="mt-4">{footer}</div> : null}
     </aside>
   );
 }
@@ -105,7 +105,7 @@ export function InlineMessage({ tone = "muted", className, children }) {
   return (
     <div
       className={cn(
-        "mt-2 rounded-2xl border px-3 py-2 text-xs font-medium",
+        "mt-2 rounded-lg border px-3 py-2 text-xs font-medium",
         messageToneClasses[tone] || messageToneClasses.muted,
         className
       )}
@@ -119,12 +119,12 @@ export function EmptyState({ icon: Icon, title, description, action, className }
   return (
     <div
       className={cn(
-        "rounded-3xl border border-dashed border-border bg-card px-6 py-10 text-center shadow-sm",
+        "rounded-lg border border-dashed border-border bg-card px-5 py-7 text-center shadow-sm",
         className
       )}
     >
       {Icon ? (
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-muted text-muted-foreground">
           <Icon className="h-5 w-5" />
         </div>
       ) : null}

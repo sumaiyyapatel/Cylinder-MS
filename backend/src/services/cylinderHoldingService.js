@@ -8,14 +8,15 @@ const { createAuditLog } = require('./auditService');
 /**
  * Create a holding record for a cylinder issue.
  * @param {object} tx - Prisma transaction client
- * @param {object} opts - { cylinderId, customerId, transactionId, issuedAt, status }
+ * @param {object} opts - { cylinderId, customerId, transactionId, challanId, issuedAt, status }
  */
-async function createHolding(tx, { cylinderId, customerId, transactionId = null, issuedAt = new Date(), status = 'HOLDING' } = {}) {
+async function createHolding(tx, { cylinderId, customerId, transactionId = null, challanId = null, issuedAt = new Date(), status = 'HOLDING' } = {}) {
   const holding = await tx.cylinderHolding.create({
     data: {
       cylinderId,
       customerId,
       transactionId: transactionId || null,
+      challanId: challanId || null,
       issuedAt,
       status,
     },

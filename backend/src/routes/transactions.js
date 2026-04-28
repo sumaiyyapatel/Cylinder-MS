@@ -26,6 +26,7 @@ const {
   parseRequiredInt,
   parseOptionalNonNegativeNumber,
   parseDate,
+  parseDateRange,
   validateCylinderNumber,
   validateCylinderNumbersUnique,
   validateGstRate,
@@ -76,21 +77,7 @@ router.get('/', authenticate, asyncHandler(async (req, res) => {
 
   if (gasCode) where.gasCode = gasCode;
 
-  if (dateFrom || dateTo) {
-    where.billDate = {};
-
-    if (dateFrom) {
-      const d = new Date(dateFrom);
-      if (!isNaN(d)) where.billDate.gte = d;
-    }
-
-    if (dateTo) {
-      const d = new Date(dateTo);
-      if (!isNaN(d)) {
-        where.billDate.lte = new Date(`${dateTo}T23:59:59Z`);
-      }
-    }
-  }
+  Object.assign(where, parseDateRange(dateFrom, dateTo, 'billDate'));
 
   // ✅ FIX: safe parsing
   const parsedPage = parseInt(page, 10);

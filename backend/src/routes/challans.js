@@ -65,6 +65,9 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
   if (linkedBillId != null && linkedBillId <= 0) {
     throw new AppError(400, 'linkedBillId must be a positive integer');
   }
+  if (linkedBillId != null) {
+    throw new AppError(400, 'Create challan first, then use convert-to-bill to link billing');
+  }
 
   // Optional cylinders array (each item: { cylinderNumber })
   const cylindersInput = req.body.cylinders;
@@ -78,9 +81,9 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
     validateCylinderNumbersUnique(preparedCylinders.map((c) => c.cylinderNumber));
   }
 
-  const billAmount = parseOptionalNonNegativeNumber(req.body.billAmount, 'billAmount');
-  const taxableAmount = parseOptionalNonNegativeNumber(req.body.taxableAmount, 'taxableAmount');
-  const gstAmount = parseOptionalNonNegativeNumber(req.body.gstAmount, 'gstAmount');
+  if (req.body.billAmount != null || req.body.taxableAmount != null || req.body.gstAmount != null) {
+    throw new AppError(400, 'Challan does not post accounting amounts; convert it to a bill first');
+  }
 
   const created = await prisma.$transaction(async (tx) => {
     return await createChallan(tx, {
@@ -94,9 +97,6 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
       transactionType: req.body.transactionType || 'DELIVERY',
       operatorId: req.user.sub,
       preparedCylinders,
-      billAmount,
-      taxableAmount,
-      gstAmount,
       gasCode: req.body.gasCode || null,
     });
   });
@@ -201,13 +201,9 @@ router.post('/:id/partial-return', authenticate, authorize('ADMIN', 'MANAGER', '
       processed.push({ cylinderNumber: cylNumber, ecrNumber, holdDays, rentAmount });
     }
 
-    // Recalculate remaining holdings for this challan's customer on challan date
-    const start = new Date(challan.challanDate);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
-
-    const remainingHoldings = await tx.cylinderHolding.count({ where: { customerId: challan.customerId, status: { in: ['HOLDING', 'BILLED'] }, issuedAt: { gte: start, lt: end } } });
+    const remainingHoldings = await tx.cylinderHolding.count({
+      where: { challanId, status: { in: ['HOLDING', 'BILLED'] } },
+    });
 
     // Update challan cylindersCount to remainingHoldings (best-effort)
     await tx.challan.update({ where: { id: challanId }, data: { cylindersCount: remainingHoldings } });

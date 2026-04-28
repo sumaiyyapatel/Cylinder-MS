@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import ConfirmActionButton from "@/components/ConfirmActionButton";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 
 function validateTierRanges(payload) {
@@ -134,7 +135,16 @@ export default function RateListPage() {
                     <td className="px-3 py-2 text-right">
                       <div className="flex items-center justify-end gap-1">
                         {hasRole("ADMIN", "MANAGER") && <button onClick={() => openEdit(r)} className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-blue-600"><Pencil className="w-3.5 h-3.5" /></button>}
-                        {hasRole("ADMIN") && <button onClick={() => { if (window.confirm("Delete?")) delMut.mutate(r.id); }} className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>}
+                        {hasRole("ADMIN") && (
+                          <ConfirmActionButton
+                            title="Delete rate?"
+                            description={`${r.gasCode} / ${r.ownerCode} rate settings will be removed.`}
+                            confirmLabel="Delete"
+                            onConfirm={() => delMut.mutate(r.id)}
+                          >
+                            <button type="button" className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                          </ConfirmActionButton>
+                        )}
                       </div>
                     </td>
                   </tr>

@@ -8,7 +8,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, Printer, Trash2, FileText, ArrowRight } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Plus, Printer, Trash2, ArrowRight } from "lucide-react";
 import { generateChallanPDF } from "@/lib/pdf-export";
 
 export default function ChallansPage() {
@@ -16,6 +26,7 @@ export default function ChallansPage() {
   const [page, setPage] = useState(1);
   const limit = 50;
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [pendingConvert, setPendingConvert] = useState(null);
   const [form, setForm] = useState({
     challanDate: new Date().toISOString().split("T")[0],
     customerId: "",
@@ -24,14 +35,12 @@ export default function ChallansPage() {
     quantityCum: "",
     vehicleNumber: "",
     transactionType: "DELIVERY",
-    linkedBillId: "",
     gasCode: "",
     cylinders: [{ cylinderNumber: "" }],
   });
 
   const { data, isLoading } = useQuery({ queryKey: ["challans", page], queryFn: () => api.get("/challans", { params: { page, limit } }).then(r => r.data) });
   const { data: customers } = useQuery({ queryKey: ["customers-list"], queryFn: () => api.get("/customers", { params: { limit: 200 } }).then(r => r.data) });
-  const { data: bills } = useQuery({ queryKey: ["transaction-bills-list"], queryFn: () => api.get("/transactions", { params: { page: 1, limit: 200 } }).then(r => r.data) });
   const { data: gasTypes } = useQuery({ queryKey: ["gasTypes"], queryFn: () => api.get("/gas-types").then(r => r.data) });
 
   const saveMut = useMutation({
@@ -48,7 +57,6 @@ export default function ChallansPage() {
         quantityCum: "",
         vehicleNumber: "",
         transactionType: "DELIVERY",
-        linkedBillId: "",
         gasCode: "",
         cylinders: [{ cylinderNumber: "" }],
       });
@@ -146,11 +154,7 @@ export default function ChallansPage() {
                             type="button"
                             variant="outline"
                             size="sm"
-                            onClick={() => {
-                              if (window.confirm(`Convert challan ${c.challanNumber} to a bill?`)) {
-                                convertMut.mutate(c.id);
-                              }
-                            }}
+                            onClick={() => setPendingConvert(c)}
                             className="h-7 px-2 text-xs text-blue-600 border-blue-200 hover:bg-blue-50"
                             disabled={convertMut.isPending}
                             title="Convert to Bill"
@@ -206,7 +210,7 @@ export default function ChallansPage() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
           <DialogHeader><DialogTitle style={{ fontFamily: 'var(--font-heading)' }}>New Challan</DialogTitle></DialogHeader>
           <form
             onSubmit={(e) => {
@@ -216,7 +220,6 @@ export default function ChallansPage() {
               saveMut.mutate({
                 ...form,
                 customerId: parseInt(form.customerId),
-                linkedBillId: form.linkedBillId ? parseInt(form.linkedBillId) : undefined,
                 cylinders: validCylinders.length ? validCylinders : undefined,
                 cylindersCount: validCylinders.length || form.cylindersCount,
                 gasCode: form.gasCode || undefined,
@@ -239,19 +242,6 @@ export default function ChallansPage() {
             <div><Label className="text-sm">Cylinders Count</Label><Input value={form.cylindersCount} onChange={(e) => setForm({ ...form, cylindersCount: e.target.value })} type="number" className="h-9 mt-1" /></div>
             <div><Label className="text-sm">Vehicle No</Label><Input value={form.vehicleNumber} onChange={(e) => setForm({ ...form, vehicleNumber: e.target.value })} className="h-9 mt-1" /></div>
             <div><Label className="text-sm">Type</Label><Select value={form.transactionType} onValueChange={(v) => setForm({ ...form, transactionType: v })}><SelectTrigger className="h-9 mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="DELIVERY">Delivery</SelectItem><SelectItem value="RETURN">Return</SelectItem></SelectContent></Select></div>
-            <div className="col-span-2">
-              <Label className="text-sm">Linked Bill</Label>
-              <Select value={form.linkedBillId} onValueChange={(v) => setForm({ ...form, linkedBillId: v })}>
-                <SelectTrigger className="h-9 mt-1"><SelectValue placeholder="Optional" /></SelectTrigger>
-                <SelectContent>
-                  {(bills?.data || []).map((bill) => (
-                    <SelectItem key={bill.id} value={String(bill.id)}>
-                      {bill.billNumber} - {bill.customer?.name || "-"}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
             <div className="col-span-2">
               <div className="flex items-center justify-between mb-2">
                 <Label className="text-sm">Cylinder Numbers</Label>
@@ -284,6 +274,29 @@ export default function ChallansPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!pendingConvert} onOpenChange={(open) => !open && setPendingConvert(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Convert challan to bill?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingConvert?.challanNumber} will be billed using the cylinders linked to this challan.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!pendingConvert) return;
+                convertMut.mutate(pendingConvert.id);
+                setPendingConvert(null);
+              }}
+            >
+              Convert
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

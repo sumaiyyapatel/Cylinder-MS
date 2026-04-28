@@ -12,6 +12,8 @@ function parseSequence(serial) {
  * Counter resets each financial year because the prefix changes (e.g. CA/25-26/ → CA/26-27/).
  */
 async function getNextNumber(db, model, field, prefix) {
+  await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${model}:${field}:${prefix}`}))`;
+
   const last = await db[model].findFirst({
     where: { [field]: { startsWith: prefix } },
     orderBy: { [field]: "desc" },

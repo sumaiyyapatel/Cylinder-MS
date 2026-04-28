@@ -4,6 +4,7 @@ const { authenticate, authorize } = require('../lib/auth');
 const asyncHandler = require('../middleware/asyncHandler');
 const { validateVoucherEntry, validateBalance } = require('../services/ledgerValidationService');
 const { postLedgerEntries } = require('../services/ledgerPostingService');
+const { parseDateRange } = require('../lib/validation');
 
 const router = express.Router();
 
@@ -11,7 +12,7 @@ const router = express.Router();
 // ==============================
 // GET /api/ledger
 // ==============================
-router.get('/', asyncHandler(async (req, res) => {
+router.get('/', authenticate, asyncHandler(async (req, res) => {
     const {
       partyCode,
       dateFrom,
@@ -32,11 +33,7 @@ router.get('/', asyncHandler(async (req, res) => {
       where.transactionType = transactionType;
     }
 
-    if (dateFrom || dateTo) {
-      where.voucherDate = {};
-      if (dateFrom) where.voucherDate.gte = new Date(dateFrom);
-      if (dateTo) where.voucherDate.lte = new Date(dateTo + 'T23:59:59Z');
-    }
+    Object.assign(where, parseDateRange(dateFrom, dateTo, 'voucherDate'));
 
     const pageNum = parseInt(page, 10);
     const pageSize = parseInt(limit, 10);
@@ -220,4 +217,3 @@ router.post(
 );
 
 module.exports = router;
-

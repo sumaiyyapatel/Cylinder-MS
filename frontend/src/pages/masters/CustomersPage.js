@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import ConfirmActionButton from "@/components/ConfirmActionButton";
 import { Plus, Search, Pencil, Trash2 } from "lucide-react";
 
 export default function CustomersPage() {
@@ -132,7 +133,14 @@ export default function CustomersPage() {
                           <button data-testid={`edit-customer-${c.id}`} onClick={() => openEdit(c)} className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-blue-600"><Pencil className="w-3.5 h-3.5" /></button>
                         )}
                         {hasRole("ADMIN") && (
-                          <button data-testid={`delete-customer-${c.id}`} onClick={() => { if (window.confirm("Delete this customer?")) delMut.mutate(c.id); }} className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                          <ConfirmActionButton
+                            title="Deactivate customer?"
+                            description={`${c.code} - ${c.name} will be hidden from active customer lists.`}
+                            confirmLabel="Deactivate"
+                            onConfirm={() => delMut.mutate(c.id)}
+                          >
+                            <button data-testid={`delete-customer-${c.id}`} type="button" className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                          </ConfirmActionButton>
                         )}
                       </div>
                     </td>

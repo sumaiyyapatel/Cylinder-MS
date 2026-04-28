@@ -29,6 +29,38 @@ function parseDate(value, fieldName, { required = false } = {}) {
   return parsed;
 }
 
+function parseDateRange(dateFrom, dateTo, fieldName) {
+  const from = parseDate(dateFrom, "dateFrom");
+  const to = parseDate(dateTo, "dateTo");
+
+  if (from && to && from > to) {
+    throw new AppError(400, "dateFrom must be <= dateTo");
+  }
+
+  if (!from && !to) return {};
+
+  const range = {};
+  if (from) range.gte = from;
+  if (to) {
+    const end = new Date(to);
+    end.setUTCHours(23, 59, 59, 999);
+    range.lte = end;
+  }
+
+  return { [fieldName]: range };
+}
+
+function validateGstin(value, fieldName = "gstin") {
+  if (value === undefined || value === null || value === "") return null;
+
+  const normalized = String(value).trim().toUpperCase();
+  if (!/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(normalized)) {
+    throw new AppError(400, `${fieldName} must be a valid GSTIN`);
+  }
+
+  return normalized;
+}
+
 function validateCylinderNumber(value, fieldName = "cylinderNumber") {
   const normalized = String(value || "").trim().toUpperCase();
   if (!normalized) {
@@ -66,6 +98,8 @@ module.exports = {
   parseRequiredInt,
   parseOptionalNonNegativeNumber,
   parseDate,
+  parseDateRange,
+  validateGstin,
   validateCylinderNumber,
   validateCylinderNumbersUnique,
   validateGstRate,

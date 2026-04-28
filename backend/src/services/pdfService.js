@@ -156,7 +156,16 @@ async function renderPdfBuffer(render) {
 
 async function sendPdf(res, fileName, render) {
   const safeName = sanitizeFileName(fileName, 'document');
+  res.setTimeout(120000, () => {
+    if (!res.headersSent) {
+      res.status(504).json({ error: 'PDF generation timed out' });
+      return;
+    }
+    res.destroy(new Error('PDF generation timed out'));
+  });
+
   const buffer = await renderPdfBuffer(render);
+  if (res.destroyed || res.writableEnded) return;
 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${safeName}.pdf"`);

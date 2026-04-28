@@ -1,4 +1,6 @@
 const { runReconciliation } = require('./reconciliationService');
+const { parseDateRange } = require('../lib/validation');
+const { calculateHoldDays, round2 } = require('./businessRules');
 
 function parsePositiveInt(value) {
   const parsed = parseInt(value, 10);
@@ -6,11 +8,7 @@ function parsePositiveInt(value) {
 }
 
 function buildDateRange(dateFrom, dateTo, fieldName) {
-  if (!dateFrom && !dateTo) return {};
-  const range = {};
-  if (dateFrom) range.gte = new Date(dateFrom);
-  if (dateTo) range.lte = new Date(`${dateTo}T23:59:59Z`);
-  return { [fieldName]: range };
+  return parseDateRange(dateFrom, dateTo, fieldName);
 }
 
 function extractCount(countValue) {
@@ -21,6 +19,8 @@ function extractCount(countValue) {
 
 async function getHoldingStatementReport(prisma, query = {}) {
   const { customerId, gasCode, asOfDate, filter } = query;
+  const effectiveAsOf = asOfDate ? new Date(asOfDate) : new Date();
+  if (Number.isNaN(effectiveAsOf.getTime())) throw new Error('asOfDate is invalid');
   const thresholdSetting = await prisma.companySetting.findUnique({
     where: { key: 'overdue_threshold_days' },
     select: { value: true },
@@ -31,7 +31,11 @@ async function getHoldingStatementReport(prisma, query = {}) {
   const where = { status: { in: ['HOLDING', 'BILLED'] } };
   const customerIdNum = parsePositiveInt(customerId);
   if (customerIdNum) where.customerId = customerIdNum;
-  if (asOfDate) where.issuedAt = { lte: new Date(`${asOfDate}T23:59:59Z`) };
+  if (asOfDate) {
+    const endOfAsOf = new Date(effectiveAsOf);
+    endOfAsOf.setUTCHours(23, 59, 59, 999);
+    where.issuedAt = { lte: endOfAsOf };
+  }
 
   const holdings = await prisma.cylinderHolding.findMany({
     where,
@@ -45,7 +49,7 @@ async function getHoldingStatementReport(prisma, query = {}) {
 
   const grouped = {};
   for (const holding of holdings) {
-    const holdDays = Math.ceil((Date.now() - new Date(holding.issuedAt).getTime()) / 86400000);
+    const holdDays = calculateHoldDays(holding.issuedAt, effectiveAsOf);
     const cylinderData = {
       cylinderNumber: holding.cylinder.cylinderNumber,
       gasCode: holding.cylinder.gasCode,
@@ -137,12 +141,17 @@ async function getSaleTransactionsReport(prisma, query = {}) {
   });
 }
 
+function getLedgerAccountKey(entry) {
+  if (entry.partyCode) return { accountCode: entry.partyCode, accountName: null, accountType: 'PARTY' };
+  const name = entry.particular || entry.transactionType || 'UNCLASSIFIED';
+  return { accountCode: name, accountName: name, accountType: 'LEDGER' };
+}
+
 async function getTrialBalanceReport(prisma, query = {}) {
   const where = buildDateRange(query.dateFrom, query.dateTo, 'voucherDate');
-  const entries = await prisma.ledgerEntry.groupBy({
-    by: ['partyCode'],
+  const entries = await prisma.ledgerEntry.findMany({
     where,
-    _sum: { debitAmount: true, creditAmount: true },
+    select: { partyCode: true, particular: true, transactionType: true, debitAmount: true, creditAmount: true },
   });
 
   const partyCodes = [...new Set(entries.map((entry) => entry.partyCode).filter(Boolean))];
@@ -154,13 +163,25 @@ async function getTrialBalanceReport(prisma, query = {}) {
     : [];
   const customerMap = new Map(customers.map((customer) => [customer.code, customer.name]));
 
-  return entries.map((entry) => ({
-    partyCode: entry.partyCode,
-    partyName: customerMap.get(entry.partyCode) || entry.partyCode,
-    debit: parseFloat(entry._sum.debitAmount || 0),
-    credit: parseFloat(entry._sum.creditAmount || 0),
-    balance: parseFloat(entry._sum.debitAmount || 0) - parseFloat(entry._sum.creditAmount || 0),
-  }));
+  const totals = new Map();
+  for (const entry of entries) {
+    const key = getLedgerAccountKey(entry);
+    const existing = totals.get(key.accountCode) || {
+      partyCode: key.accountType === 'PARTY' ? key.accountCode : null,
+      partyName: key.accountType === 'PARTY' ? customerMap.get(key.accountCode) || key.accountCode : key.accountName,
+      accountType: key.accountType,
+      debit: 0,
+      credit: 0,
+    };
+    existing.debit = round2(existing.debit + Number(entry.debitAmount || 0));
+    existing.credit = round2(existing.credit + Number(entry.creditAmount || 0));
+    totals.set(key.accountCode, existing);
+  }
+
+  return [...totals.values()]
+    .map((entry) => ({ ...entry, balance: round2(entry.debit - entry.credit) }))
+    .filter((entry) => Math.abs(entry.debit) > 0.01 || Math.abs(entry.credit) > 0.01)
+    .sort((left, right) => String(left.partyName).localeCompare(String(right.partyName)));
 }
 
 async function getCylinderRotationReport(prisma, query = {}) {
@@ -265,38 +286,54 @@ async function getBookReport(prisma, query = {}, transactionTypes = []) {
 }
 
 async function getOutstandingReport(prisma) {
-  const entries = await prisma.ledgerEntry.groupBy({
-    by: ['partyCode'],
-    _sum: { debitAmount: true, creditAmount: true },
-  });
+  const [bills, ecrs, payments] = await Promise.all([
+    prisma.bill.findMany({
+      select: { id: true, customerId: true, totalAmount: true, customer: { select: { code: true, name: true, phone: true } } },
+    }),
+    prisma.ecrRecord.findMany({
+      where: { rentAmount: { gt: 0 } },
+      select: { id: true, customerId: true, rentAmount: true, customer: { select: { code: true, name: true, phone: true } } },
+    }),
+    prisma.payment.findMany({
+      select: { customerId: true, billId: true, ecrId: true, amount: true },
+    }),
+  ]);
 
-  const filteredEntries = entries.filter((entry) => entry.partyCode);
-  const partyCodes = [...new Set(filteredEntries.map((entry) => entry.partyCode))];
-  const customers = partyCodes.length
-    ? await prisma.customer.findMany({
-        where: { code: { in: partyCodes } },
-        select: { code: true, name: true, phone: true },
-      })
-    : [];
-  const customerMap = new Map(customers.map((customer) => [customer.code, customer]));
+  const billPaid = new Map();
+  const ecrPaid = new Map();
+  for (const payment of payments) {
+    if (payment.billId) {
+      billPaid.set(payment.billId, round2((billPaid.get(payment.billId) || 0) + Number(payment.amount || 0)));
+    }
+    if (payment.ecrId) {
+      ecrPaid.set(payment.ecrId, round2((ecrPaid.get(payment.ecrId) || 0) + Number(payment.amount || 0)));
+    }
+  }
 
-  return filteredEntries
-    .map((entry) => {
-      const balance = parseFloat(entry._sum.debitAmount || 0) - parseFloat(entry._sum.creditAmount || 0);
-      if (Math.abs(balance) < 0.01) return null;
-      const customer = customerMap.get(entry.partyCode);
-      return {
-        partyCode: entry.partyCode,
-        partyName: customer?.name || entry.partyCode,
-        phone: customer?.phone,
-        debit: parseFloat(entry._sum.debitAmount || 0),
-        credit: parseFloat(entry._sum.creditAmount || 0),
-        balance,
-        type: balance > 0 ? 'RECEIVABLE' : 'PAYABLE',
-      };
-    })
-    .filter(Boolean)
-    .sort((left, right) => Math.abs(right.balance) - Math.abs(left.balance));
+  const byCustomer = new Map();
+  const addOutstanding = (customerId, customer, amount) => {
+    const balance = round2(amount);
+    if (balance <= 0.01) return;
+    const existing = byCustomer.get(customerId) || {
+      customerId,
+      partyCode: customer?.code || String(customerId),
+      partyName: customer?.name || customer?.code || String(customerId),
+      phone: customer?.phone || null,
+      balance: 0,
+      type: 'RECEIVABLE',
+    };
+    existing.balance = round2(existing.balance + balance);
+    byCustomer.set(customerId, existing);
+  };
+
+  for (const bill of bills) {
+    addOutstanding(bill.customerId, bill.customer, Number(bill.totalAmount || 0) - (billPaid.get(bill.id) || 0));
+  }
+  for (const ecr of ecrs) {
+    addOutstanding(ecr.customerId, ecr.customer, Number(ecr.rentAmount || 0) - (ecrPaid.get(ecr.id) || 0));
+  }
+
+  return [...byCustomer.values()].sort((left, right) => right.balance - left.balance);
 }
 
 async function getSalesSummaryReport(prisma, query = {}) {

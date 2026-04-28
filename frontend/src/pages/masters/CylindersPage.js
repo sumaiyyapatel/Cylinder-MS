@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import ConfirmActionButton from "@/components/ConfirmActionButton";
 import { Plus, Search, Pencil, Trash2 } from "lucide-react";
 
 const STATUSES = ["IN_STOCK", "WITH_CUSTOMER", "IN_TRANSIT", "DAMAGED", "UNDER_TEST", "CONDEMNED"];
@@ -136,7 +137,14 @@ export default function CylindersPage() {
                           <button data-testid={`edit-cylinder-${c.id}`} onClick={() => openEdit(c)} className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-blue-600"><Pencil className="w-3.5 h-3.5" /></button>
                         )}
                         {hasRole("ADMIN") && (
-                          <button data-testid={`delete-cylinder-${c.id}`} onClick={() => { if (window.confirm("Delete?")) delMut.mutate(c.id); }} className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                          <ConfirmActionButton
+                            title="Deactivate cylinder?"
+                            description={`${c.cylinderNumber} will be hidden from active cylinder lists.`}
+                            confirmLabel="Deactivate"
+                            onConfirm={() => delMut.mutate(c.id)}
+                          >
+                            <button data-testid={`delete-cylinder-${c.id}`} type="button" className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                          </ConfirmActionButton>
                         )}
                       </div>
                     </td>

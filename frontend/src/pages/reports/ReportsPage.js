@@ -1,7 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Download, Printer, SearchCheck } from "lucide-react";
+import {
+  Activity,
+  BookOpen,
+  ClipboardList,
+  Download,
+  FileBarChart,
+  Gauge,
+  Printer,
+  ReceiptIndianRupee,
+  SearchCheck,
+  ShieldCheck,
+  Truck,
+} from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { formatDate, formatINR } from "@/lib/utils-format";
@@ -10,24 +22,41 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { EmptyState, MobileRecordList, SummaryPanel } from "@/components/ux/workflow";
+import { EmptyState, MobileRecordList } from "@/components/ux/workflow";
 import { generateReportPDF } from "@/lib/pdf-export";
 
-const reportTabs = [
-  ["holding", "Holding Statement"],
-  ["daily", "Daily Report"],
-  ["customer-stmt", "Customer Statement"],
-  ["trial-balance", "Trial Balance"],
-  ["cylinder-rotation", "Cylinder Rotation"],
-  ["sale-txn", "Sale Transactions"],
-  ["outstanding", "Outstanding Payments"],
-  ["sales-summary", "Sales Summary"],
-  ["party-rental", "Party Wise Rental"],
-  ["cash-book", "Cash Book"],
-  ["bank-book", "Bank Book"],
-  ["journal-book", "Journal Book"],
-  ["reconciliation", "Reconciliation"],
+const reportGroups = [
+  {
+    key: "operations",
+    label: "Operations",
+    reports: [
+      ["holding", "Holding", "Active cylinders with overdue visibility", ClipboardList],
+      ["daily", "Daily", "One-day issue and return snapshot", Activity],
+      ["cylinder-rotation", "Rotation", "Cylinder lifecycle history", Truck],
+      ["reconciliation", "Reconciliation", "Mismatch and missing ECR checks", ShieldCheck],
+    ],
+  },
+  {
+    key: "sales",
+    label: "Sales",
+    reports: [
+      ["sale-txn", "Sale Transactions", "Filtered bills by customer, gas, and date", FileBarChart],
+      ["sales-summary", "Sales Summary", "Grouped totals by gas and customer", Gauge],
+      ["customer-stmt", "Customer Statement", "Issue and return history for one party", BookOpen],
+      ["party-rental", "Party Rental", "Rental dues grouped by customer", ReceiptIndianRupee],
+    ],
+  },
+  {
+    key: "accounting",
+    label: "Accounting",
+    reports: [
+      ["outstanding", "Outstanding", "Open bill and ECR receivables", ReceiptIndianRupee],
+      ["trial-balance", "Trial Balance", "Debit, credit, and balance by ledger head", BookOpen],
+      ["cash-book", "Cash Book", "Cash movement with running balance", ReceiptIndianRupee],
+      ["bank-book", "Bank Book", "Bank movement with running balance", ReceiptIndianRupee],
+      ["journal-book", "Journal Book", "Manual journal-style accounting entries", BookOpen],
+    ],
+  },
 ];
 
 const reportCatalog = {
@@ -45,7 +74,7 @@ const reportCatalog = {
   },
   "trial-balance": {
     title: "Trial Balance",
-    description: "Debit, credit, and balance grouped by party.",
+    description: "Debit, credit, and balance grouped by party and ledger head.",
   },
   "cylinder-rotation": {
     title: "Cylinder Rotation",
@@ -57,7 +86,7 @@ const reportCatalog = {
   },
   outstanding: {
     title: "Outstanding Payments",
-    description: "Receivable and payable balances grouped by party.",
+    description: "Open bill and ECR receivables grouped by party.",
   },
   "sales-summary": {
     title: "Sales Summary",
@@ -83,6 +112,12 @@ const reportCatalog = {
     title: "Reconciliation",
     description: "Mismatch, missing ECR, and duplicate issue checks.",
   },
+};
+
+const defaultReportByCategory = {
+  operations: "holding",
+  sales: "sale-txn",
+  accounting: "outstanding",
 };
 
 function normalizeSelectValue(value) {
@@ -207,9 +242,68 @@ function ReportSection({ section }) {
   );
 }
 
-export default function ReportsPage() {
+function ReportPicker({ activeReport, onChange, groups }) {
+  return (
+    <div className="filter-panel no-print">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+            <SearchCheck className="h-4 w-4 text-amber-600" />
+            Choose report
+          </div>
+          <div className="mt-1 text-sm text-slate-500">Grouped by workflow so you do not have to hunt through a long tab row.</div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        {groups.map((group) => (
+          <div key={group.label} className="space-y-2">
+            <div className="px-1 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">{group.label}</div>
+            <div className="grid gap-2">
+              {group.reports.map(([value, label, description, Icon]) => {
+                const selected = activeReport === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => onChange(value)}
+                    data-testid={`report-tab-${value}`}
+                    className={`flex min-h-[68px] items-start gap-3 rounded-lg border px-3 py-3 text-left transition ${
+                      selected
+                        ? "border-amber-400 bg-amber-50 text-amber-950 ring-1 ring-amber-300 dark:bg-amber-950/30 dark:text-amber-100"
+                        : "border-border bg-card text-slate-700 hover:border-amber-300 hover:bg-amber-50/60 dark:hover:bg-slate-800"
+                    }`}
+                  >
+                    <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${selected ? "bg-amber-200 text-amber-900 dark:bg-amber-800 dark:text-amber-100" : "bg-muted text-slate-600"}`}>
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold">{label}</span>
+                      <span className="mt-1 block text-xs leading-5 text-slate-500">{description}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function ReportsPage({ reportCategory = "operations" }) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [activeReport, setActiveReport] = useState("holding");
+  const visibleReportGroups = useMemo(
+    () => reportGroups.filter((group) => group.key === reportCategory),
+    [reportCategory]
+  );
+  const allowedReports = useMemo(
+    () => new Set(visibleReportGroups.flatMap((group) => group.reports.map(([value]) => value))),
+    [visibleReportGroups]
+  );
+  const defaultReport = defaultReportByCategory[reportCategory] || "holding";
+  const [activeReport, setActiveReport] = useState(defaultReport);
   const [filters, setFilters] = useState({
     customerId: "all",
     gasCode: "all",
@@ -221,8 +315,8 @@ export default function ReportsPage() {
 
   useEffect(() => {
     const tab = searchParams.get("tab");
-    if (tab) setActiveReport(tab);
-  }, [searchParams]);
+    setActiveReport(tab && allowedReports.has(tab) ? tab : defaultReport);
+  }, [allowedReports, defaultReport, searchParams]);
 
   const customerIdParam = normalizeSelectValue(filters.customerId);
   const gasCodeParam = normalizeSelectValue(filters.gasCode);
@@ -853,25 +947,25 @@ export default function ReportsPage() {
         </div>
       </section>
 
-      <div className="filter-panel no-print">
-        <div className="mb-3 flex items-center gap-2 text-sm font-medium text-slate-700">
-          <SearchCheck className="h-4 w-4 text-amber-600" />
-          Report selector
-        </div>
-        <Tabs value={activeReport} onValueChange={handleReportChange}>
-          <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-2xl bg-slate-100 p-1.5">
-            {reportTabs.map(([value, label]) => (
-              <TabsTrigger key={value} value={value} data-testid={`report-tab-${value}`}>
-                {label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-      </div>
+      <ReportPicker activeReport={activeReport} onChange={handleReportChange} groups={visibleReportGroups} />
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_320px] no-print">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px] no-print">
         <div className="filter-panel">
-          <div className="mb-3 text-sm font-medium text-slate-700">Filters</div>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-slate-900">Filters for {activeReportMeta.title}</div>
+              <div className="mt-1 text-sm text-slate-500">Only fields used by this report are shown.</div>
+            </div>
+            {appliedFilterCount ? (
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
+                {appliedFilterCount} active filter{appliedFilterCount === 1 ? "" : "s"}
+              </span>
+            ) : (
+              <span className="rounded-full border border-border bg-muted px-3 py-1 text-xs font-semibold text-slate-600">
+                No filters applied
+              </span>
+            )}
+          </div>
           <div className="flex flex-wrap items-end gap-3">
             {(activeReport === "holding" || activeReport === "customer-stmt" || activeReport === "sale-txn" || activeReport === "party-rental" || activeReport === "reconciliation") && (
               <div>
@@ -975,16 +1069,24 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        <SummaryPanel
-          title={activeReportMeta.title}
-          description={activeReportMeta.description}
-          tone="blue"
-          rows={[
-            { label: "Sections", value: reportSections.length || 0 },
-            { label: "Visible rows", value: activeRecordCount },
-            { label: "Applied filters", value: appliedFilterCount },
-          ]}
-        />
+        <aside className="filter-panel">
+          <div className="text-sm font-semibold text-slate-900">{activeReportMeta.title}</div>
+          <p className="mt-2 text-sm leading-6 text-slate-500">{activeReportMeta.description}</p>
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            <div className="rounded-lg border border-border bg-muted px-3 py-2">
+              <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Sections</div>
+              <div className="mt-1 text-lg font-bold text-slate-900">{reportSections.length || 0}</div>
+            </div>
+            <div className="rounded-lg border border-border bg-muted px-3 py-2">
+              <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Rows</div>
+              <div className="mt-1 text-lg font-bold text-slate-900">{activeRecordCount}</div>
+            </div>
+            <div className="rounded-lg border border-border bg-muted px-3 py-2">
+              <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Filters</div>
+              <div className="mt-1 text-lg font-bold text-slate-900">{appliedFilterCount}</div>
+            </div>
+          </div>
+        </aside>
       </div>
 
       {activeReport === "reconciliation" && reconciliationData?.summary ? (
