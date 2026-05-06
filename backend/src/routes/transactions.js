@@ -185,6 +185,9 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
   const preparedCylinders = cylinders.map((cyl, index) => {
     const number = validateCylinderNumber(cyl?.cylinderNumber, `cylinders[${index}].cylinderNumber`);
     const quantityCum = parseOptionalNonNegativeNumber(cyl?.quantityCum, `cylinders[${index}].quantityCum`);
+    if (!quantityCum || quantityCum <= 0) {
+      throw new AppError(400, `cylinders[${index}].quantityCum must be greater than zero`);
+    }
     return { cylinderNumber: number, quantityCum };
   });
 
@@ -301,11 +304,17 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
     if (!Number.isFinite(unitRate) || unitRate < 0) {
       throw new AppError(400, 'Rate list has invalid unit rate');
     }
+    if (!unitRate) {
+      throw new AppError(400, `Rate not configured for ${gasCode || dbCylinders[0]?.gasCode || 'selected gas'} / ${cylinderOwner || 'COC'}`);
+    }
 
     const totalQuantity = round2(preparedCylinders.reduce((sum, item) => sum + (item.quantityCum || 0), 0));
     const taxableAmount = round2(totalQuantity * unitRate);
     const gstMode = getGstMode(companyGstinSetting?.value, customer.gstin);
     const tax = calculateGstBreakup(taxableAmount, gstRate, gstMode);
+    if (tax.totalAmount <= 0) {
+      throw new AppError(400, 'Bill total must be greater than zero');
+    }
 
     const bill = await tx.bill.create({
       data: {

@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Pencil } from "lucide-react";
+import { InlineMessage } from "@/components/ux/workflow";
 
 export default function OrdersPage() {
   const { hasRole } = useAuth();
@@ -21,6 +22,20 @@ export default function OrdersPage() {
   const { data, isLoading } = useQuery({ queryKey: ["orders"], queryFn: () => api.get("/orders", { params: { limit: 100 } }).then(r => r.data) });
   const { data: customers } = useQuery({ queryKey: ["customers-list"], queryFn: () => api.get("/customers", { params: { limit: 200 } }).then(r => r.data) });
   const { data: gasTypes } = useQuery({ queryKey: ["gasTypes"], queryFn: () => api.get("/gas-types").then(r => r.data) });
+  const { data: stockAvailability } = useQuery({
+    queryKey: ["order-stock-availability", form.gasCode || "", form.ownerCode || "COC", dialogOpen],
+    queryFn: () => api.get("/orders/stock-availability/check", {
+      params: {
+        gasCode: form.gasCode || undefined,
+        ownerCode: form.ownerCode || "COC",
+      },
+    }).then(r => r.data),
+    enabled: dialogOpen,
+  });
+
+  const requestedQty = form.quantityCyl ? parseInt(form.quantityCyl, 10) : 0;
+  const availableQty = stockAvailability?.available ?? null;
+  const exceedsStock = requestedQty > 0 && availableQty !== null && requestedQty > availableQty && form.status !== "CLOSED" && form.status !== "CANCELLED";
 
   const saveMut = useMutation({
     mutationFn: (d) => editing ? api.put(`/orders/${editing.id}`, d) : api.post("/orders", d),
@@ -46,6 +61,7 @@ export default function OrdersPage() {
     if (p.rate) p.rate = parseFloat(p.rate); else delete p.rate;
     if (p.quantityCyl !== undefined && (!Number.isInteger(p.quantityCyl) || p.quantityCyl <= 0)) return toast.error("Quantity must be a positive integer");
     if (p.rate !== undefined && (!Number.isFinite(p.rate) || p.rate < 0)) return toast.error("Rate must be a non-negative number");
+    if (exceedsStock) return toast.error(`Only ${availableQty} in-stock cylinder(s) available`);
     if (!p.gasCode) delete p.gasCode;
     saveMut.mutate(p);
   };
@@ -104,12 +120,20 @@ export default function OrdersPage() {
               </Select>
             </div>
             <div><Label className="text-sm">Owner</Label><Select value={form.ownerCode} onValueChange={(v) => setForm({ ...form, ownerCode: v })}><SelectTrigger className="h-9 mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="COC">COC</SelectItem><SelectItem value="POC">POC</SelectItem></SelectContent></Select></div>
-            <div><Label className="text-sm">Quantity (Cyl)</Label><Input value={form.quantityCyl} onChange={(e) => setForm({ ...form, quantityCyl: e.target.value })} type="number" className="h-9 mt-1" /></div>
+            <div>
+              <Label className="text-sm">Quantity (Cyl)</Label>
+              <Input value={form.quantityCyl} onChange={(e) => setForm({ ...form, quantityCyl: e.target.value })} type="number" min="1" className={`h-9 mt-1 ${exceedsStock ? "border-red-300 focus-visible:ring-red-200" : ""}`} />
+              {availableQty !== null ? (
+                <InlineMessage tone={exceedsStock ? "danger" : "info"}>
+                  {exceedsStock ? `Only ${availableQty} in stock for this gas/owner.` : `${availableQty} in-stock cylinder(s) available.`}
+                </InlineMessage>
+              ) : null}
+            </div>
             <div><Label className="text-sm">Rate</Label><Input value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })} type="number" step="0.01" className="h-9 mt-1" /></div>
             <div><Label className="text-sm">Status</Label><Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}><SelectTrigger className="h-9 mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ACTIVE">ACTIVE</SelectItem><SelectItem value="CLOSED">CLOSED</SelectItem><SelectItem value="CANCELLED">CANCELLED</SelectItem></SelectContent></Select></div>
             <div className="col-span-2 flex justify-end gap-2 pt-2">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="h-9">Cancel</Button>
-              <Button type="submit" data-testid="order-save-btn" className="h-9 bg-blue-600 hover:bg-blue-700" disabled={saveMut.isPending}>{saveMut.isPending ? "Saving..." : "Save"}</Button>
+              <Button type="submit" data-testid="order-save-btn" className="h-9 bg-blue-600 hover:bg-blue-700" disabled={saveMut.isPending || exceedsStock}>{saveMut.isPending ? "Saving..." : "Save"}</Button>
             </div>
           </form>
         </DialogContent>

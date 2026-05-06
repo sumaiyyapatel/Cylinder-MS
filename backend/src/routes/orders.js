@@ -3,6 +3,7 @@ const prisma = require('../lib/prisma');
 const { authenticate, authorize } = require('../lib/auth');
 const asyncHandler = require('../middleware/asyncHandler');
 const { AppError } = require('../middleware/errorHandler');
+const { normalizeOwnerCode } = require('../services/businessRules');
 
 const router = express.Router();
 
@@ -83,6 +84,58 @@ function normalizeOrderPayload(payload, { partial = false } = {}) {
   return data;
 }
 
+async function getAvailableCylinderCount(tx, { gasCode, ownerCode }) {
+  const where = {
+    isActive: true,
+    status: 'IN_STOCK',
+  };
+  if (gasCode) where.gasCode = gasCode;
+  if (ownerCode) where.ownerCode = normalizeOwnerCode(ownerCode);
+  return tx.cylinder.count({ where });
+}
+
+async function validateOrderBusinessRules(tx, data, existing = null) {
+  const merged = { ...(existing || {}), ...data };
+
+  if (merged.customerId) {
+    const customer = await tx.customer.findUnique({
+      where: { id: merged.customerId },
+      select: { id: true, isActive: true },
+    });
+    if (!customer || !customer.isActive) {
+      throw new AppError(404, 'Customer not found');
+    }
+  }
+
+  if (merged.gasCode) {
+    const gasType = await tx.gasType.findUnique({
+      where: { gasCode: merged.gasCode },
+      select: { gasCode: true, isActive: true },
+    });
+    if (!gasType || !gasType.isActive) {
+      throw new AppError(404, 'Gas type not found');
+    }
+  }
+
+  const stockSensitivePatch = !existing
+    || data.quantityCyl !== undefined
+    || data.gasCode !== undefined
+    || data.ownerCode !== undefined
+    || data.status !== undefined;
+
+  if (stockSensitivePatch && merged.quantityCyl && merged.status !== 'CLOSED' && merged.status !== 'CANCELLED') {
+    const ownerCode = normalizeOwnerCode(merged.ownerCode || 'COC');
+    const available = await getAvailableCylinderCount(tx, {
+      gasCode: merged.gasCode,
+      ownerCode,
+    });
+    if (merged.quantityCyl > available) {
+      const scope = `${merged.gasCode || 'all gas types'} / ${ownerCode}`;
+      throw new AppError(409, `Only ${available} in-stock cylinder(s) available for ${scope}`);
+    }
+  }
+}
+
 router.get('/', authenticate, asyncHandler(async (req, res) => {
   const { status, customerId, page = 1, limit = 50 } = req.query;
   const where = {};
@@ -101,6 +154,23 @@ router.get('/', authenticate, asyncHandler(async (req, res) => {
   res.json({ data: orders, total, page: parsedPage, totalPages: Math.ceil(total / parsedLimit) });
 }));
 
+router.get('/stock-availability/check', authenticate, asyncHandler(async (req, res) => {
+  const { gasCode, ownerCode = 'COC' } = req.query;
+  if (gasCode) {
+    const gasType = await prisma.gasType.findUnique({
+      where: { gasCode },
+      select: { gasCode: true, isActive: true },
+    });
+    if (!gasType || !gasType.isActive) {
+      throw new AppError(404, 'Gas type not found');
+    }
+  }
+
+  const normalizedOwner = normalizeOwnerCode(ownerCode);
+  const available = await getAvailableCylinderCount(prisma, { gasCode, ownerCode: normalizedOwner });
+  res.json({ gasCode: gasCode || null, ownerCode: normalizedOwner, available });
+}));
+
 router.get('/:id', authenticate, asyncHandler(async (req, res) => {
   const id = parsePositiveInt(req.params.id, 'id', { required: true });
   const order = await prisma.order.findUnique({ where: { id } });
@@ -110,7 +180,11 @@ router.get('/:id', authenticate, asyncHandler(async (req, res) => {
 
 router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
   try {
-    const order = await prisma.order.create({ data: normalizeOrderPayload(req.body) });
+    const payload = normalizeOrderPayload(req.body);
+    const order = await prisma.$transaction(async (tx) => {
+      await validateOrderBusinessRules(tx, payload);
+      return tx.order.create({ data: payload });
+    });
     res.status(201).json(order);
   } catch (err) {
     if (err?.code === 'P2002') {
@@ -123,9 +197,15 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
 router.put('/:id', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
   const id = parsePositiveInt(req.params.id, 'id', { required: true });
   try {
-    const order = await prisma.order.update({
-      where: { id },
-      data: normalizeOrderPayload(req.body, { partial: true }),
+    const payload = normalizeOrderPayload(req.body, { partial: true });
+    const order = await prisma.$transaction(async (tx) => {
+      const existing = await tx.order.findUnique({ where: { id } });
+      if (!existing) throw new AppError(404, 'Order not found');
+      await validateOrderBusinessRules(tx, payload, existing);
+      return tx.order.update({
+        where: { id },
+        data: payload,
+      });
     });
     res.json(order);
   } catch (err) {

@@ -107,6 +107,10 @@ export default function TransactionsPage() {
   const recentCustomers = customerRows.slice(0, 5);
   const validCylinders = form.cylinders.filter((cylinder) => cylinder.cylinderNumber.trim());
   const totalQuantity = validCylinders.reduce((sum, cylinder) => sum + (parseFloat(cylinder.quantityCum) || 0), 0);
+  const zeroQuantityRows = validCylinders
+    .map((cylinder, index) => ({ index, quantity: Number(cylinder.quantityCum || 0) }))
+    .filter((row) => !Number.isFinite(row.quantity) || row.quantity <= 0)
+    .map((row) => row.index + 1);
 
   const duplicateCylinderNumbers = useMemo(() => {
     const counts = validCylinders.reduce((acc, cylinder) => {
@@ -171,6 +175,16 @@ export default function TransactionsPage() {
 
     if (duplicateCylinderNumbers.length) {
       toast.error("Remove duplicate cylinder numbers before saving");
+      return;
+    }
+
+    if (zeroQuantityRows.length) {
+      toast.error(`Enter quantity greater than zero for row ${zeroQuantityRows[0]}`);
+      return;
+    }
+
+    if (totalQuantity <= 0) {
+      toast.error("Bill total quantity must be greater than zero");
       return;
     }
 
@@ -414,6 +428,11 @@ export default function TransactionsPage() {
                   Duplicate cylinder numbers: {duplicateCylinderNumbers.join(", ")}
                 </InlineMessage>
               ) : null}
+              {zeroQuantityRows.length ? (
+                <InlineMessage tone="danger">
+                  Quantity must be greater than zero for row {zeroQuantityRows[0]}.
+                </InlineMessage>
+              ) : null}
 
               <div className="mt-4 hidden overflow-hidden rounded-2xl border border-slate-200 md:block">
                 <table className="w-full text-sm">
@@ -553,7 +572,7 @@ export default function TransactionsPage() {
                     type="submit"
                     data-testid="bill-save-btn"
                     className="h-11 w-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-strong)]"
-                    disabled={saveMut.isPending}
+                    disabled={saveMut.isPending || zeroQuantityRows.length > 0 || totalQuantity <= 0}
                   >
                     {saveMut.isPending ? "Saving..." : "Issue Bill"}
                   </Button>

@@ -243,50 +243,47 @@ function ReportSection({ section }) {
 }
 
 function ReportPicker({ activeReport, onChange, groups }) {
+  const group = groups[0];
+  const reports = group?.reports || [];
+
   return (
     <div className="filter-panel no-print">
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
             <SearchCheck className="h-4 w-4 text-amber-600" />
-            Choose report
+            {group?.label || "Reports"}
           </div>
-          <div className="mt-1 text-sm text-slate-500">Grouped by workflow so you do not have to hunt through a long tab row.</div>
+          <div className="mt-1 text-sm text-slate-500">Choose the report. The row fits the page width and wraps only on small screens.</div>
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        {groups.map((group) => (
-          <div key={group.label} className="space-y-2">
-            <div className="px-1 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">{group.label}</div>
-            <div className="grid gap-2">
-              {group.reports.map(([value, label, description, Icon]) => {
-                const selected = activeReport === value;
-                return (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => onChange(value)}
-                    data-testid={`report-tab-${value}`}
-                    className={`flex min-h-[68px] items-start gap-3 rounded-lg border px-3 py-3 text-left transition ${
-                      selected
-                        ? "border-amber-400 bg-amber-50 text-amber-950 ring-1 ring-amber-300 dark:bg-amber-950/30 dark:text-amber-100"
-                        : "border-border bg-card text-slate-700 hover:border-amber-300 hover:bg-amber-50/60 dark:hover:bg-slate-800"
-                    }`}
-                  >
-                    <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${selected ? "bg-amber-200 text-amber-900 dark:bg-amber-800 dark:text-amber-100" : "bg-muted text-slate-600"}`}>
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-sm font-semibold">{label}</span>
-                      <span className="mt-1 block text-xs leading-5 text-slate-500">{description}</span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[repeat(auto-fit,minmax(150px,1fr))]">
+        {reports.map(([value, label, description, Icon]) => {
+          const selected = activeReport === value;
+          return (
+            <button
+              key={value}
+              type="button"
+              onClick={() => onChange(value)}
+              data-testid={`report-tab-${value}`}
+              title={description}
+              className={`flex min-h-[46px] items-center gap-2 rounded-lg border px-3 py-2 text-left transition ${
+                selected
+                  ? "border-amber-400 bg-amber-50 text-amber-950 ring-1 ring-amber-300 dark:bg-amber-950/30 dark:text-amber-100"
+                  : "border-border bg-card text-slate-700 hover:border-amber-300 hover:bg-amber-50/60 dark:hover:bg-slate-800"
+              }`}
+            >
+              <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${selected ? "bg-amber-200 text-amber-900 dark:bg-amber-800 dark:text-amber-100" : "bg-muted text-slate-600"}`}>
+                <Icon className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-semibold">{label}</span>
+                <span className="block truncate text-[11px] text-slate-500">{description}</span>
+              </span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
