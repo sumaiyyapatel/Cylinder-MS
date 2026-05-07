@@ -4,6 +4,7 @@ const { authenticate, authorize } = require('../lib/auth');
 const asyncHandler = require('../middleware/asyncHandler');
 const { AppError } = require('../middleware/errorHandler');
 const { createAuditLog } = require('../services/auditService');
+const { calculateHoldDays } = require('../services/businessRules');
 
 const router = express.Router();
 
@@ -29,6 +30,113 @@ router.get('/', authenticate, asyncHandler(async (req, res) => {
     prisma.cylinder.count({ where }),
   ]);
   res.json({ data: cylinders, total, page: parseInt(page, 10), totalPages: Math.ceil(total / parseInt(limit, 10)) });
+}));
+
+router.get('/:id/timeline', authenticate, asyncHandler(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) throw new AppError(400, 'Invalid cylinder id');
+
+  const cylinder = await prisma.cylinder.findUnique({
+    where: { id },
+    include: { gasType: true },
+  });
+  if (!cylinder || !cylinder.isActive) throw new AppError(404, 'Cylinder not found');
+
+  const [holdings, ecrs] = await Promise.all([
+    prisma.cylinderHolding.findMany({
+      where: { cylinderId: id },
+      orderBy: [{ issuedAt: 'asc' }, { id: 'asc' }],
+      include: {
+        customer: { select: { id: true, code: true, name: true } },
+        transaction: { select: { billNumber: true, billDate: true, transactionCode: true } },
+        challan: { select: { challanNumber: true, challanDate: true } },
+      },
+    }),
+    prisma.ecrRecord.findMany({
+      where: { cylinderNumber: cylinder.cylinderNumber },
+      orderBy: [{ ecrDate: 'asc' }, { id: 'asc' }],
+      include: { customer: { select: { id: true, code: true, name: true } } },
+    }),
+  ]);
+
+  const events = [
+    {
+      type: 'CREATED',
+      label: 'Cylinder created',
+      date: cylinder.createdAt,
+      detail: `${cylinder.ownerCode} / ${cylinder.gasCode || '-'}`,
+      status: cylinder.status,
+    },
+  ];
+
+  if (cylinder.hydroTestDate) {
+    events.push({
+      type: 'HYDRO_TESTED',
+      label: 'Hydro tested',
+      date: cylinder.hydroTestDate,
+      detail: cylinder.nextTestDue ? `Next due ${cylinder.nextTestDue.toISOString()}` : 'Hydro test completed',
+      status: 'UNDER_TEST',
+    });
+  }
+
+  for (const holding of holdings) {
+    events.push({
+      type: holding.challanId ? 'CHALLAN_ISSUED' : 'ISSUED',
+      label: holding.challanId ? 'Issued on challan' : 'Issued on bill',
+      date: holding.issuedAt,
+      detail: holding.transaction?.billNumber || holding.challan?.challanNumber || '-',
+      customer: holding.customer,
+      status: holding.status,
+      holdDays: calculateHoldDays(holding.issuedAt, holding.returnedAt || new Date()),
+    });
+
+    if (holding.returnedAt) {
+      events.push({
+        type: 'RETURNED',
+        label: 'Returned',
+        date: holding.returnedAt,
+        detail: holding.rentAmount ? `Rent ${holding.rentAmount}` : 'Returned to stock',
+        customer: holding.customer,
+        status: 'RETURNED',
+        holdDays: holding.holdDays || calculateHoldDays(holding.issuedAt, holding.returnedAt),
+      });
+    }
+  }
+
+  for (const ecr of ecrs) {
+    events.push({
+      type: 'ECR',
+      label: 'ECR posted',
+      date: ecr.ecrDate,
+      detail: `${ecr.ecrNumber}${ecr.rentAmount ? ` / rent ${ecr.rentAmount}` : ''}`,
+      customer: ecr.customer,
+      status: 'RETURNED',
+      holdDays: ecr.holdDays || null,
+    });
+  }
+
+  if (['DAMAGED', 'CONDEMNED', 'UNDER_TEST'].includes(cylinder.status)) {
+    events.push({
+      type: cylinder.status,
+      label: cylinder.status.replace(/_/g, ' '),
+      date: new Date(),
+      detail: 'Current cylinder state',
+      status: cylinder.status,
+    });
+  }
+
+  events.sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime());
+
+  res.json({
+    cylinder,
+    summary: {
+      totalIssues: holdings.length,
+      totalReturns: ecrs.length,
+      currentStatus: cylinder.status,
+      lastEvent: events[0] || null,
+    },
+    events,
+  });
 }));
 
 // GET /api/cylinders/:id

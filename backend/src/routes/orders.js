@@ -4,6 +4,7 @@ const { authenticate, authorize } = require('../lib/auth');
 const asyncHandler = require('../middleware/asyncHandler');
 const { AppError } = require('../middleware/errorHandler');
 const { normalizeOwnerCode } = require('../services/businessRules');
+const { createAuditLog } = require('../services/auditService');
 
 const router = express.Router();
 
@@ -183,7 +184,16 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
     const payload = normalizeOrderPayload(req.body);
     const order = await prisma.$transaction(async (tx) => {
       await validateOrderBusinessRules(tx, payload);
-      return tx.order.create({ data: payload });
+      const created = await tx.order.create({ data: payload });
+      await createAuditLog(tx, {
+        action: 'CREATE_ORDER',
+        module: 'orders',
+        userId: req.user.sub,
+        entityId: String(created.id),
+        oldValue: null,
+        newValue: { orderNumber: created.orderNumber, customerId: created.customerId, quantityCyl: created.quantityCyl },
+      });
+      return created;
     });
     res.status(201).json(order);
   } catch (err) {
@@ -202,10 +212,19 @@ router.put('/:id', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyn
       const existing = await tx.order.findUnique({ where: { id } });
       if (!existing) throw new AppError(404, 'Order not found');
       await validateOrderBusinessRules(tx, payload, existing);
-      return tx.order.update({
+      const updated = await tx.order.update({
         where: { id },
         data: payload,
       });
+      await createAuditLog(tx, {
+        action: 'UPDATE_ORDER',
+        module: 'orders',
+        userId: req.user.sub,
+        entityId: String(id),
+        oldValue: { orderNumber: existing.orderNumber, status: existing.status, quantityCyl: existing.quantityCyl },
+        newValue: { orderNumber: updated.orderNumber, status: updated.status, quantityCyl: updated.quantityCyl },
+      });
+      return updated;
     });
     res.json(order);
   } catch (err) {
@@ -222,7 +241,19 @@ router.put('/:id', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyn
 router.delete('/:id', authenticate, authorize('ADMIN'), asyncHandler(async (req, res) => {
   const id = parsePositiveInt(req.params.id, 'id', { required: true });
   try {
-    await prisma.order.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.order.findUnique({ where: { id } });
+      if (!existing) throw new AppError(404, 'Order not found');
+      await tx.order.delete({ where: { id } });
+      await createAuditLog(tx, {
+        action: 'DELETE_ORDER',
+        module: 'orders',
+        userId: req.user.sub,
+        entityId: String(id),
+        oldValue: { orderNumber: existing.orderNumber, status: existing.status, quantityCyl: existing.quantityCyl },
+        newValue: null,
+      });
+    });
     res.json({ message: 'Order deleted' });
   } catch (err) {
     if (err?.code === 'P2025') {

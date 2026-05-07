@@ -11,6 +11,7 @@ import {
   ChevronRight,
   ClipboardList,
   CreditCard,
+  Factory,
   FileText,
   Flame,
   IndianRupee,
@@ -51,6 +52,7 @@ const navGroups = [
     icon: LayoutDashboard,
     items: [
       { to: "/", icon: LayoutDashboard, label: "Dashboard" },
+      { to: "/operations", icon: Factory, label: "Operations Console" },
       { to: "/notifications", icon: BellRing, label: "Notifications", badge: "alerts" },
       { to: "/settings", icon: Settings, label: "Settings" },
       { to: "/users", icon: UserCog, label: "Users" },
@@ -104,7 +106,7 @@ const navGroups = [
 const mobileTabs = [
   { to: "/transactions", label: "Bills", icon: ArrowLeftRight },
   { to: "/ecr", label: "ECR", icon: RotateCcw },
-  { to: "/", label: "Home", icon: LayoutDashboard },
+  { to: "/operations", label: "Ops", icon: Factory },
   { to: "/reports/operations", label: "Reports", icon: BarChart3 },
   { to: "/settings", label: "Settings", icon: Settings },
 ];

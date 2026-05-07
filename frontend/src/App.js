@@ -2,8 +2,11 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import LoginPage from "@/pages/auth/LoginPage";
 import DashboardPage from "@/pages/dashboard/DashboardPage";
+import OperationsConsolePage from "@/pages/operations/OperationsConsolePage";
 import CustomersPage from "@/pages/masters/CustomersPage";
+import CustomerCommandPage from "@/pages/customers/CustomerCommandPage";
 import CylindersPage from "@/pages/masters/CylindersPage";
+import CylinderTimelinePage from "@/pages/cylinders/CylinderTimelinePage";
 import GasTypesPage from "@/pages/masters/GasTypesPage";
 import AreasPage from "@/pages/masters/AreasPage";
 import RateListPage from "@/pages/masters/RateListPage";
@@ -57,8 +60,11 @@ function AppRoutes() {
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
       <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
         <Route index element={<DashboardPage />} />
+        <Route path="operations" element={<OperationsConsolePage />} />
         <Route path="customers" element={<CustomersPage />} />
+        <Route path="customers/:id/command" element={<CustomerCommandPage />} />
         <Route path="cylinders" element={<CylindersPage />} />
+        <Route path="cylinders/:id/timeline" element={<CylinderTimelinePage />} />
         <Route path="gas-types" element={<GasTypesPage />} />
         <Route path="areas" element={<AreasPage />} />
         <Route path="rate-list" element={<RateListPage />} />

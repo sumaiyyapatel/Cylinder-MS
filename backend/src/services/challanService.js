@@ -181,10 +181,16 @@ async function convertChallanToBill(tx, challanId, operatorId = null) {
 
   const gstRate = rateConfig?.gstRate == null ? 0 : Number(rateConfig.gstRate);
   const unitRate = Number(rateConfig?.ratePerUnit ?? 0);
+  if (!unitRate || unitRate <= 0) {
+    throw new AppError(400, `Rate not configured for ${challan.gasCode || 'selected gas'} / ${challan.cylinderOwner || 'COC'}`);
+  }
   const totalQuantity = round2(Number(challan.quantityCum || 0));
   const taxableAmount = round2(totalQuantity * unitRate);
   const gstMode = getGstMode(companyGstinSetting?.value, customer.gstin);
   const tax = calculateGstBreakup(taxableAmount, gstRate, gstMode);
+  if (tax.totalAmount <= 0) {
+    throw new AppError(400, 'Bill total must be greater than zero');
+  }
 
   const billNumber = await generateBillNumber(tx, challan.cylinderOwner || 'COC', challan.challanDate);
 

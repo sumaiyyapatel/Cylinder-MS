@@ -116,7 +116,36 @@ router.post('/:id/convert-to-bill', authenticate, authorize('ADMIN', 'MANAGER', 
   res.status(201).json({ message: 'Challan converted to bill', ...result });
 }));
 
-module.exports = router;
+router.delete('/:id', authenticate, authorize('ADMIN'), asyncHandler(async (req, res) => {
+  const challanId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(challanId) || challanId <= 0) throw new AppError(400, 'Invalid challan id');
+
+  await prisma.$transaction(async (tx) => {
+    const challan = await tx.challan.findUnique({
+      where: { id: challanId },
+      include: { holdings: { where: { status: { in: ['HOLDING', 'BILLED'] } } } },
+    });
+    if (!challan) throw new AppError(404, 'Challan not found');
+    if (challan.status === 'BILLED' || challan.linkedBillId) {
+      throw new AppError(409, 'Billed challans are locked and cannot be deleted');
+    }
+    if (challan.holdings.length) {
+      throw new AppError(409, 'Return active challan cylinders before deleting this challan');
+    }
+
+    await tx.challan.delete({ where: { id: challanId } });
+    await createAuditLog(tx, {
+      action: 'DELETE_CHALLAN',
+      module: 'challans',
+      userId: req.user.sub,
+      entityId: String(challanId),
+      oldValue: { challanNumber: challan.challanNumber, status: challan.status },
+      newValue: null,
+    });
+  });
+
+  res.json({ message: 'Challan deleted' });
+}));
 
 // POST /api/challans/:id/partial-return
 router.post('/:id/partial-return', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
@@ -213,3 +242,5 @@ router.post('/:id/partial-return', authenticate, authorize('ADMIN', 'MANAGER', '
 
   res.status(200).json(result);
 }));
+
+module.exports = router;
