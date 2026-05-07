@@ -445,6 +445,7 @@ model LedgerEntry {
 
   @@index([voucherNumber])
   @@index([partyCode])
+  @@unique([voucherNumber, partyCode, particular, transactionType, voucherRef], map: "ledger_entries_voucher_row_unique")
   @@map("ledger_entries")
 }
 

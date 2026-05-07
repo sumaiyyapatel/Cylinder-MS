@@ -30,9 +30,13 @@ async function postLedgerEntries(tx, voucherDate, entries = [], operatorId = nul
   );
 }
   }
-if (!entries.every(e => e.debitAmount || e.creditAmount)) {
-  throw new Error("Invalid ledger entry: both debit and credit are empty");
-}
+  if (!entries.every((entry) => {
+    const debit = Number(entry.debitAmount || 0);
+    const credit = Number(entry.creditAmount || 0);
+    return (debit > 0 && credit === 0) || (credit > 0 && debit === 0);
+  })) {
+    throw new Error('Each ledger row must contain either debit or credit');
+  }
   const created = [];
   for (const entry of entries) {
     const createdEntry = await tx.ledgerEntry.create({

@@ -45,3 +45,6 @@ ALTER TABLE "transactions"
   ADD COLUMN IF NOT EXISTS "cgst_amount" DECIMAL(65,30),
   ADD COLUMN IF NOT EXISTS "sgst_amount" DECIMAL(65,30),
   ADD COLUMN IF NOT EXISTS "igst_amount" DECIMAL(65,30);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "ledger_entries_voucher_row_unique"
+  ON "ledger_entries"("voucher_number", "party_code", "particular", "transaction_type", "voucher_ref");

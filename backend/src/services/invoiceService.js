@@ -73,10 +73,7 @@ async function generateInvoicePdf(billId) {
     await browser.close();
     return pdfPath;
   } catch (err) {
-    // Fallback: save HTML if puppeteer not available
-    const htmlPath = pdfPath.replace(/\.pdf$/, '.html');
-    fs.writeFileSync(htmlPath, html, 'utf8');
-    return htmlPath;
+    throw new Error(`PDF generation unavailable: ${err.message || err}`);
   }
 }
 

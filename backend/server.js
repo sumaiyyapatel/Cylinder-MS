@@ -2,7 +2,7 @@ require('dotenv').config({ override: true });
 const express = require('express');
 const cors = require('cors');
 const { globalErrorHandler } = require('./src/middleware/errorHandler');
-const { startOverdueCylinderScheduler } = require('./src/services/overdueScheduler');
+const { startOperationsJobs } = require('./src/jobs');
 const authRoutes = require('./src/routes/auth');
 const customerRoutes = require('./src/routes/customers');
 const cylinderRoutes = require('./src/routes/cylinders');
@@ -82,7 +82,7 @@ app.use('/api/operations', operationsRoutes);
 
 app.use(globalErrorHandler);
 
-startOverdueCylinderScheduler();
+startOperationsJobs();
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);

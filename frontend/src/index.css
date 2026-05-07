@@ -20,6 +20,11 @@
   --color-alert: #ef4444;
   --color-warning: #f59e0b;
   --color-info: #3b82f6;
+  --bg-card: hsl(0 0% 100%);
+  --bg-page: hsl(210 20% 98%);
+  --text-primary: hsl(215 25% 10%);
+  --text-muted: hsl(215 14% 45%);
+  --border-color: hsl(214 18% 88%);
 
   --space-xs: 4px;
   --space-sm: 8px;
@@ -77,6 +82,11 @@
     --chart-3: 217 91% 60%;
     --chart-4: 0 84% 60%;
     --chart-5: 280 75% 65%;
+    --bg-card: hsl(222 30% 13%);
+    --bg-page: hsl(222 35% 10%);
+    --text-primary: hsl(210 20% 96%);
+    --text-muted: hsl(214 12% 70%);
+    --border-color: hsl(221 22% 24%);
   }
 
   * {
@@ -203,7 +213,7 @@
     @apply flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between;
   }
   .section-title {
-    @apply text-base font-semibold text-slate-900;
+    @apply text-base font-semibold text-foreground;
     font-family: var(--font-heading);
     overflow-wrap: anywhere;
   }
@@ -345,6 +355,24 @@
 
   .bg-accent {
     background-color: var(--color-accent);
+  }
+
+  .surface-card {
+    background-color: var(--bg-card);
+    color: var(--text-primary);
+    border-color: var(--border-color);
+  }
+
+  .text-app-primary {
+    color: var(--text-primary);
+  }
+
+  .text-app-muted {
+    color: var(--text-muted);
+  }
+
+  .border-app {
+    border-color: var(--border-color);
   }
 }
 @keyframes slide-up {

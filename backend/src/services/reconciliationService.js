@@ -7,10 +7,11 @@
  */
 
 const { calculateHoldDays, round2 } = require('./businessRules');
+const { getHoldingQuantitySummary } = require('./cylinderHoldingService');
 
 
 async function runReconciliation(db, options = {}) {
-  const { customerId, gasCode, ownerCode } = options;
+  const { customerId, gasCode, ownerCode, asOfDate } = options;
 
   // 1. Build holding-based summary from CylinderHolding
   const holdingWhere = {};
@@ -57,12 +58,36 @@ async function runReconciliation(db, options = {}) {
     }
   }
 
+  const quantitySummary = await getHoldingQuantitySummary(db, { customerId, gasCode, ownerCode, asOfDate });
+  for (const summary of quantitySummary) {
+    const key = `${summary.customerId}|${summary.gasCode || 'UNKNOWN'}|${summary.ownerCode || 'UNKNOWN'}`;
+    if (!groupMap[key]) {
+      groupMap[key] = {
+        customerId: summary.customerId,
+        customerCode: summary.customerCode || '-',
+        customerName: summary.customerName || '-',
+        gasCode: summary.gasCode || 'UNKNOWN',
+        ownerCode: summary.ownerCode || 'UNKNOWN',
+        issued: summary.issueCylinders,
+        returned: summary.returnCylinders,
+        activeHoldings: summary.activeHoldings,
+        cylinders: summary.heldCylinders.map((item) => item.cylinderNumber).filter(Boolean),
+      };
+    }
+    groupMap[key].issueQuantity = summary.issueQuantity;
+    groupMap[key].returnQuantity = summary.returnQuantity;
+    groupMap[key].balanceQuantity = summary.balanceQuantity;
+    groupMap[key].movementIssued = summary.issueCylinders;
+    groupMap[key].movementReturned = summary.returnCylinders;
+    groupMap[key].movementBalance = summary.balanceCylinders;
+  }
+
   // 3. Calculate balance and flag mismatches
   const mismatches = [];
   const reconciled = [];
 
   for (const [key, group] of Object.entries(groupMap)) {
-    const balance = group.issued - group.returned;
+    const balance = group.movementBalance ?? (group.issued - group.returned);
     const hasMismatch = balance !== group.activeHoldings;
 
     const record = {
@@ -236,7 +261,10 @@ async function findOrphanedHoldings(db, options = {}) {
 }
 
 async function auditBillToEcrMatching(db, billId) {
-  const bill = await db.bill.findUnique({ where: { id: parseInt(billId, 10) }, include: { items: { select: { cylinderNumber: true, quantityCum: true } } } });
+  const bill = await db.bill.findUnique({
+    where: { id: parseInt(billId, 10) },
+    include: { items: { select: { cylinderNumber: true, quantityCum: true } } },
+  });
   if (!bill) throw new Error('Bill not found');
 
   const billNumber = bill.billNumber;
@@ -244,12 +272,36 @@ async function auditBillToEcrMatching(db, billId) {
   const billCylinders = items.map(i => i.cylinderNumber).filter(Boolean);
   const billQty = round2(items.reduce((s, i) => s + (parseFloat(i.quantityCum || 0)), 0));
 
-  const ecrs = await db.ecrRecord.findMany({ where: { issueNumber: billNumber } });
+  const ecrs = await db.ecrRecord.findMany({
+    where: {
+      OR: [
+        { issueNumber: billNumber },
+        ...(billCylinders.length ? [{ cylinderNumber: { in: billCylinders } }] : []),
+      ],
+    },
+  });
   const ecrCylinders = ecrs.map(e => e.cylinderNumber).filter(Boolean);
   const ecrQty = round2(ecrs.reduce((s, e) => s + (parseFloat(e.quantityCum || 0) || 0), 0));
 
   const missingReturns = billCylinders.filter(c => !ecrCylinders.includes(c));
   const extraReturns = ecrCylinders.filter(c => !billCylinders.includes(c));
+  const returnCounts = ecrCylinders.reduce((acc, cylinderNumber) => {
+    acc[cylinderNumber] = (acc[cylinderNumber] || 0) + 1;
+    return acc;
+  }, {});
+  const duplicateReturns = Object.entries(returnCounts)
+    .filter(([, count]) => count > 1)
+    .map(([cylinderNumber, count]) => ({ cylinderNumber, count }));
+  const wrongCustomerReturns = ecrs
+    .filter((ecr) => bill.customerId && ecr.customerId && ecr.customerId !== bill.customerId)
+    .map((ecr) => ({
+      ecrId: ecr.id,
+      ecrNumber: ecr.ecrNumber,
+      cylinderNumber: ecr.cylinderNumber,
+      expectedCustomerId: bill.customerId,
+      actualCustomerId: ecr.customerId,
+    }));
+  const overReturn = ecrCylinders.length > billCylinders.length || ecrQty > billQty + 0.01 || extraReturns.length > 0;
 
   return {
     billId: bill.id,
@@ -258,6 +310,9 @@ async function auditBillToEcrMatching(db, billId) {
     ecrQty,
     missingReturns,
     extraReturns,
+    duplicateReturns,
+    wrongCustomerReturns,
+    overReturn,
     ecrCount: ecrs.length,
     itemCount: items.length,
   };

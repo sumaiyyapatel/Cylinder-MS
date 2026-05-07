@@ -8,7 +8,9 @@
     "migrate": "node ./node_modules/prisma/build/index.js db push --schema ./prisma/schema.prisma",
     "prisma:generate": "node ./node_modules/prisma/build/index.js generate --schema ./prisma/schema.prisma",
     "prisma:push": "node ./node_modules/prisma/build/index.js db push --schema ./prisma/schema.prisma",
-    "seed": "node prisma/seed.js"
+    "seed": "node prisma/seed.js",
+    "validate:migration": "node scripts/migration-validation.js",
+    "backfill:movements": "node scripts/backfill-cylinder-movements.js"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
