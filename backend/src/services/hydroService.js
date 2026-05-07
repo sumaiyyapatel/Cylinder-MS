@@ -40,6 +40,8 @@ async function completeHydroTest(txOrClient, cylinderId, testDate = new Date(), 
   });
   await recordCylinderMovement(client, {
     cylinderId,
+    gasCode: before?.gasCode || updated.gasCode || null,
+    ownerCode: before?.ownerCode || updated.ownerCode || null,
     movementType: MOVEMENT_TYPES.HYDRO_TESTED,
     movementDate: parsedDate,
     statusBefore: before?.status,

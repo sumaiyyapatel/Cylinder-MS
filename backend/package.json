@@ -10,6 +10,11 @@
     "prisma:push": "node ./node_modules/prisma/build/index.js db push --schema ./prisma/schema.prisma",
     "seed": "node prisma/seed.js",
     "validate:migration": "node scripts/migration-validation.js",
+    "validate:migration:counts": "node scripts/migration/validateCounts.js",
+    "validate:migration:ledger": "node scripts/migration/validateLedgerTotals.js",
+    "validate:migration:duplicates": "node scripts/migration/detectDuplicateBills.js",
+    "validate:migration:orphans": "node scripts/migration/detectOrphanCylinders.js",
+    "validate:migration:holdings": "node scripts/migration/verifyHoldings.js",
     "backfill:movements": "node scripts/backfill-cylinder-movements.js"
   },
   "dependencies": {

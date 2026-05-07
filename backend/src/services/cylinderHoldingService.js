@@ -131,8 +131,8 @@ async function getHoldingQuantitySummary(tx, {
   const buckets = new Map();
 
   for (const movement of movements) {
-    const movementGas = movement.cylinder?.gasCode || null;
-    const movementOwner = movement.cylinder?.ownerCode || null;
+    const movementGas = movement.gasCode || movement.cylinder?.gasCode || null;
+    const movementOwner = movement.ownerCode || movement.cylinder?.ownerCode || null;
     if (gasCode && movementGas !== gasCode) continue;
     if (!matchesOwner(movementOwner, ownerCode)) continue;
 
@@ -144,7 +144,7 @@ async function getHoldingQuantitySummary(tx, {
       ownerCode: normalizeOwnerCode(movementOwner),
     });
 
-    const cylQty = Number(movement.quantityCyl || 1);
+    const cylQty = Number(movement.quantityCyl || 0);
     const qty = Number(movement.quantityCum || 0);
     if (movement.movementType === MOVEMENT_TYPES.ISSUE) {
       bucket.issueCylinders += cylQty;
@@ -253,6 +253,8 @@ async function returnCylinder(tx, {
     cylinderId: holding.cylinderId,
     customerId: holding.customerId,
     holdingId,
+    gasCode: gasCode || holding.cylinder?.gasCode || null,
+    ownerCode: effectiveOwner,
     movementType: MOVEMENT_TYPES.RETURN,
     movementDate: returnDate,
     quantityCum,

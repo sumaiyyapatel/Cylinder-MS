@@ -342,9 +342,11 @@ model CylinderHolding {
 
 model CylinderMovement {
   id              Int      @id @default(autoincrement())
-  cylinderId      Int      @map("cylinder_id")
+  cylinderId      Int?     @map("cylinder_id")
   customerId      Int?     @map("customer_id")
   holdingId       Int?     @map("holding_id")
+  gasCode         String?  @map("gas_code")
+  ownerCode       String?  @map("owner_code")
   movementType    String   @map("movement_type")
   movementDate    DateTime @map("movement_date")
   quantityCyl     Int      @default(1) @map("quantity_cyl")
@@ -356,12 +358,13 @@ model CylinderMovement {
   operatorId      Int?     @map("operator_id")
   createdAt       DateTime @default(now()) @map("created_at")
 
-  cylinder Cylinder @relation(fields: [cylinderId], references: [id])
+  cylinder Cylinder? @relation(fields: [cylinderId], references: [id])
   customer Customer? @relation(fields: [customerId], references: [id])
   holding  CylinderHolding? @relation(fields: [holdingId], references: [id])
 
   @@index([cylinderId, movementDate])
   @@index([customerId, movementDate])
+  @@index([gasCode, ownerCode, movementDate])
   @@index([movementType, movementDate])
   @@index([referenceType, referenceNumber])
   @@map("cylinder_movements")
@@ -445,7 +448,7 @@ model LedgerEntry {
 
   @@index([voucherNumber])
   @@index([partyCode])
-  @@unique([voucherNumber, partyCode, particular, transactionType, voucherRef], map: "ledger_entries_voucher_row_unique")
+  @@unique([voucherNumber, partyCode, transactionType], map: "ledger_entries_voucher_party_type_unique")
   @@map("ledger_entries")
 }
 

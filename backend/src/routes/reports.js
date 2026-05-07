@@ -933,8 +933,8 @@ router.get('/age-analysis-outstanding', authenticate, async (req, res) => {
 // Reconciliation - Holding Parity Check (replaces CHECKER.PRG)
 router.get('/reconciliation', authenticate, async (req, res) => {
   try {
-    const { customerId, gasCode, ownerCode } = req.query;
-    const result = await runReconciliation(prisma, { customerId, gasCode, ownerCode });
+    const { customerId, gasCode, ownerCode, asOfDate } = req.query;
+    const result = await runReconciliation(prisma, { customerId, gasCode, ownerCode, asOfDate });
     res.json(result);
   } catch (err) {
     res.status(err.statusCode || 500).json({ error: err.message });

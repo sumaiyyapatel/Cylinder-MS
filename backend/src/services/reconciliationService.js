@@ -74,6 +74,10 @@ async function runReconciliation(db, options = {}) {
         cylinders: summary.heldCylinders.map((item) => item.cylinderNumber).filter(Boolean),
       };
     }
+    groupMap[key].issued = summary.issueCylinders;
+    groupMap[key].returned = summary.returnCylinders;
+    groupMap[key].activeHoldings = summary.activeHoldings;
+    groupMap[key].cylinders = summary.heldCylinders.map((item) => item.cylinderNumber).filter(Boolean);
     groupMap[key].issueQuantity = summary.issueQuantity;
     groupMap[key].returnQuantity = summary.returnQuantity;
     groupMap[key].balanceQuantity = summary.balanceQuantity;

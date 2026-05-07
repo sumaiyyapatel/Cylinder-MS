@@ -1,5 +1,7 @@
 const prisma = require('../lib/prisma');
 const { createAuditLog } = require('./auditService');
+const fs = require('fs');
+const path = require('path');
 
 function sanitizeFileName(value, fallback) {
   const text = String(value || fallback || 'document').trim();
@@ -211,12 +213,8 @@ async function getBillPdfData(id) {
   return { company, bill };
 }
 
-async function streamBillPdf(res, id, context = {}) {
-  const data = await getBillPdfData(id);
-  if (!data) return false;
-
-  const { company, bill } = data;
-  const itemRows = (bill.items || []).map((item, index) => {
+function buildBillItemRows(bill) {
+  return (bill.items || []).map((item, index) => {
     const quantity = asNumber(item.quantityCum);
     const unitRate = asNumber(item.unitRate || bill.unitRate);
     const amount = asNumber(item.taxableAmount) || quantity * unitRate;
@@ -233,68 +231,102 @@ async function streamBillPdf(res, id, context = {}) {
       formatAmount(gst),
     ];
   });
+}
 
-  const fileName = `Bill-${bill.billNumber}`;
-  await sendPdf(res, fileName, (doc) => {
-    let y = drawHeader(doc, company, 'TAX INVOICE', [
-      `Bill No: ${bill.billNumber}`,
-      `Date: ${formatDate(bill.billDate)}`,
-    ]);
+function renderBillPdfDocument(doc, company, bill) {
+  const itemRows = buildBillItemRows(bill);
+  let y = drawHeader(doc, company, 'TAX INVOICE', [
+    `Bill No: ${bill.billNumber}`,
+    `Date: ${formatDate(bill.billDate)}`,
+  ]);
 
-    y = drawSectionTitle(doc, y, 'Bill To');
-    drawKeyValueBlock(doc, 40, y, 250, [
-      { label: 'Customer', value: `${bill.customer?.code || ''} ${bill.customer?.name || ''}`.trim() },
-      { label: 'Address', value: [bill.customer?.address1, bill.customer?.address2, bill.customer?.city].filter(Boolean).join(', ') },
-      { label: 'GSTIN', value: bill.customer?.gstin || 'N/A' },
-      { label: 'Phone', value: bill.customer?.phone || 'N/A' },
-    ]);
+  y = drawSectionTitle(doc, y, 'Bill To');
+  drawKeyValueBlock(doc, 40, y, 250, [
+    { label: 'Customer', value: `${bill.customer?.code || ''} ${bill.customer?.name || ''}`.trim() },
+    { label: 'Address', value: [bill.customer?.address1, bill.customer?.address2, bill.customer?.city].filter(Boolean).join(', ') },
+    { label: 'GSTIN', value: bill.customer?.gstin || 'N/A' },
+    { label: 'Phone', value: bill.customer?.phone || 'N/A' },
+  ]);
 
-    drawKeyValueBlock(doc, 305, y, 250, [
-      { label: 'Gas', value: bill.gasCode || '-' },
-      { label: 'Owner', value: bill.cylinderOwner || '-' },
-      { label: 'Order', value: bill.orderNumber || '-' },
-      { label: 'Txn Code', value: bill.transactionCode || '-' },
-    ]);
+  drawKeyValueBlock(doc, 305, y, 250, [
+    { label: 'Gas', value: bill.gasCode || '-' },
+    { label: 'Owner', value: bill.cylinderOwner || '-' },
+    { label: 'Order', value: bill.orderNumber || '-' },
+    { label: 'Txn Code', value: bill.transactionCode || '-' },
+  ]);
 
-    y += 90;
-    y = drawSectionTitle(doc, y, 'Item Details');
-    y = drawTable(
-      doc,
-      y,
-      ['Sr', 'Cylinder', 'Gas', 'HSN', 'Qty', 'Rate', 'Taxable', 'GST'],
-      itemRows.length ? itemRows : [['-', '-', '-', '-', '0.00', '0.00', '0.00', '0.00']],
-      [30, 86, 72, 56, 55, 60, 70, 66],
-      { rightAlignFrom: 4 }
-    );
+  y += 90;
+  y = drawSectionTitle(doc, y, 'Item Details');
+  y = drawTable(
+    doc,
+    y,
+    ['Sr', 'Cylinder', 'Gas', 'HSN', 'Qty', 'Rate', 'Taxable', 'GST'],
+    itemRows.length ? itemRows : [['-', '-', '-', '-', '0.00', '0.00', '0.00', '0.00']],
+    [30, 86, 72, 56, 55, 60, 70, 66],
+    { rightAlignFrom: 4 }
+  );
 
-    y += 18;
-    doc.font('Helvetica-Bold').fontSize(10).text('Totals', 330, y);
-    doc.font('Helvetica').fontSize(9);
-    doc.text('Taxable Amount', 330, y + 18, { width: 120 });
-    doc.text(formatAmount(bill.taxableAmount), 460, y + 18, { width: 80, align: 'right' });
+  y += 18;
+  doc.font('Helvetica-Bold').fontSize(10).text('Totals', 330, y);
+  doc.font('Helvetica').fontSize(9);
+  doc.text('Taxable Amount', 330, y + 18, { width: 120 });
+  doc.text(formatAmount(bill.taxableAmount), 460, y + 18, { width: 80, align: 'right' });
 
-    if ((bill.gstMode || 'INTRA') === 'INTER') {
-      doc.text(`IGST @ ${formatAmount(bill.gstRate)}%`, 330, y + 34, { width: 120 });
-      doc.text(formatAmount(bill.gstAmount), 460, y + 34, { width: 80, align: 'right' });
-    } else {
-      const halfRate = asNumber(bill.gstRate) / 2;
-      const halfGst = asNumber(bill.gstAmount) / 2;
-      doc.text(`CGST @ ${formatAmount(halfRate)}%`, 330, y + 34, { width: 120 });
-      doc.text(formatAmount(halfGst), 460, y + 34, { width: 80, align: 'right' });
-      doc.text(`SGST @ ${formatAmount(halfRate)}%`, 330, y + 50, { width: 120 });
-      doc.text(formatAmount(halfGst), 460, y + 50, { width: 80, align: 'right' });
-    }
+  if ((bill.gstMode || 'INTRA') === 'INTER') {
+    doc.text(`IGST @ ${formatAmount(bill.gstRate)}%`, 330, y + 34, { width: 120 });
+    doc.text(formatAmount(bill.gstAmount), 460, y + 34, { width: 80, align: 'right' });
+  } else {
+    const halfRate = asNumber(bill.gstRate) / 2;
+    const halfGst = asNumber(bill.gstAmount) / 2;
+    doc.text(`CGST @ ${formatAmount(halfRate)}%`, 330, y + 34, { width: 120 });
+    doc.text(formatAmount(halfGst), 460, y + 34, { width: 80, align: 'right' });
+    doc.text(`SGST @ ${formatAmount(halfRate)}%`, 330, y + 50, { width: 120 });
+    doc.text(formatAmount(halfGst), 460, y + 50, { width: 80, align: 'right' });
+  }
 
-    doc.font('Helvetica-Bold').fontSize(11);
-    doc.text('Total Amount', 330, y + 72, { width: 120 });
-    doc.text(`Rs. ${formatAmount(bill.totalAmount)}`, 430, y + 72, { width: 110, align: 'right' });
+  doc.font('Helvetica-Bold').fontSize(11);
+  doc.text('Total Amount', 330, y + 72, { width: 120 });
+  doc.text(`Rs. ${formatAmount(bill.totalAmount)}`, 430, y + 72, { width: 110, align: 'right' });
 
-    doc.font('Helvetica').fontSize(8);
-    doc.text('Terms: Payment due within 30 days. Cylinders must be returned in original condition.', 40, 744, {
-      width: 320,
-    });
-    doc.text('Authorised Signatory', 400, 760, { width: 140, align: 'center' });
+  doc.font('Helvetica').fontSize(8);
+  doc.text('Terms: Payment due within 30 days. Cylinders must be returned in original condition.', 40, 744, {
+    width: 320,
   });
+  doc.text('Authorised Signatory', 400, 760, { width: 140, align: 'center' });
+}
+
+async function generateBillPdfFile(id, context = {}) {
+  const data = await getBillPdfData(id);
+  if (!data) throw new Error('Bill not found');
+
+  const { company, bill } = data;
+  const uploadsDir = path.join(__dirname, '../../uploads/bills');
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  const safeName = sanitizeFileName(bill.billNumber, `bill-${id}`);
+  const pdfPath = path.join(uploadsDir, `${safeName}.pdf`);
+  const buffer = await renderPdfBuffer((doc) => renderBillPdfDocument(doc, company, bill));
+  fs.writeFileSync(pdfPath, buffer);
+
+  if (context.userId) {
+    await createAuditLog(prisma, {
+      action: 'PDF_GENERATED',
+      module: 'bills',
+      userId: context.userId,
+      entityId: String(id),
+      newValue: { fileName: `Bill-${bill.billNumber}`, pdfPath },
+    });
+  }
+
+  return pdfPath;
+}
+
+async function streamBillPdf(res, id, context = {}) {
+  const data = await getBillPdfData(id);
+  if (!data) return false;
+
+  const { company, bill } = data;
+  const fileName = `Bill-${bill.billNumber}`;
+  await sendPdf(res, fileName, (doc) => renderBillPdfDocument(doc, company, bill));
   await auditPdfDownload({ module: 'bills', entityId: id, userId: context.userId, fileName });
 
   return true;
@@ -460,6 +492,7 @@ async function streamChallanPdf(res, id, context = {}) {
 }
 
 module.exports = {
+  generateBillPdfFile,
   streamBillPdf,
   streamEcrPdf,
   streamChallanPdf,

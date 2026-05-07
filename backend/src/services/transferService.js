@@ -66,7 +66,7 @@ async function createTransfer(tx, opts = {}) {
   if (cylinderNumbers.length > 0) {
     const dbCylinders = await tx.cylinder.findMany({
       where: { cylinderNumber: { in: cylinderNumbers }, isActive: true },
-      select: { id: true, cylinderNumber: true, ownerCode: true, status: true },
+      select: { id: true, cylinderNumber: true, gasCode: true, ownerCode: true, status: true },
     });
 
     const existingSet = new Set(dbCylinders.map((c) => c.cylinderNumber));
@@ -95,6 +95,8 @@ async function createTransfer(tx, opts = {}) {
       });
       await recordCylinderMovement(tx, {
         cylinderId: cyl.id,
+        gasCode: cyl.gasCode || gasCode || null,
+        ownerCode: dest,
         movementType: MOVEMENT_TYPES.TRANSFER,
         movementDate: transferDate,
         statusBefore: cyl.status,

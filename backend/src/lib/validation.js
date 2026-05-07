@@ -94,6 +94,45 @@ function validateGstRate(value, fieldName = "gstRate") {
   return parsed;
 }
 
+function validateRouteTrace(route, fieldName = "route") {
+  if (!Array.isArray(route) || route.length === 0) {
+    throw new AppError(400, `${fieldName} must be a non-empty array`);
+  }
+
+  return route.map((point, index) => {
+    const lat = Number(point?.lat);
+    const lng = Number(point?.lng);
+    const timestamp = point?.timestamp ? new Date(point.timestamp) : null;
+
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+      throw new AppError(400, `${fieldName}[${index}].lat must be between -90 and 90`);
+    }
+    if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
+      throw new AppError(400, `${fieldName}[${index}].lng must be between -180 and 180`);
+    }
+    if (!timestamp || Number.isNaN(timestamp.getTime())) {
+      throw new AppError(400, `${fieldName}[${index}].timestamp is invalid`);
+    }
+
+    const accuracy = point?.accuracy == null ? null : Number(point.accuracy);
+    const speed = point?.speed == null ? null : Number(point.speed);
+    if (accuracy != null && (!Number.isFinite(accuracy) || accuracy < 0)) {
+      throw new AppError(400, `${fieldName}[${index}].accuracy must be a non-negative number`);
+    }
+    if (speed != null && !Number.isFinite(speed)) {
+      throw new AppError(400, `${fieldName}[${index}].speed must be numeric`);
+    }
+
+    return {
+      lat,
+      lng,
+      timestamp: timestamp.toISOString(),
+      accuracy,
+      speed,
+    };
+  });
+}
+
 module.exports = {
   parseRequiredInt,
   parseOptionalNonNegativeNumber,
@@ -103,4 +142,5 @@ module.exports = {
   validateCylinderNumber,
   validateCylinderNumbersUnique,
   validateGstRate,
+  validateRouteTrace,
 };

@@ -6,6 +6,11 @@ const { updateCylinderStatus, assertNoActiveHolding } = require('./cylinderStatu
 const { postLedgerEntries } = require('./ledgerPostingService');
 const { buildIssueEntries } = require('./ledgerValidationService');
 const { MOVEMENT_TYPES, recordCylinderMovement } = require('./cylinderMovementService');
+const {
+  TRACKING_MODES,
+  buildQuantityMovementPayload,
+  validateIssueTrackingShape,
+} = require('./inventoryTrackingService');
 
 async function createChallan(tx, opts = {}) {
   const {
@@ -25,6 +30,19 @@ async function createChallan(tx, opts = {}) {
   const customer = await tx.customer.findUnique({ where: { id: customerId }, select: { id: true, code: true, isActive: true } });
   if (!customer || !customer.isActive) throw new AppError(404, 'Customer not found');
 
+  const isSerialized = preparedCylinders && preparedCylinders.length > 0;
+  validateIssueTrackingShape({
+    trackingMode: isSerialized ? TRACKING_MODES.SERIALIZED : TRACKING_MODES.QUANTITY,
+    cylinderCount: preparedCylinders.length,
+    quantityCum,
+    cylindersCount: cylindersCount || preparedCylinders.length,
+    context: 'Challan issue',
+  });
+  if (!isSerialized && !gasCode) {
+    throw new AppError(400, 'gasCode is required for quantity-based challan');
+  }
+
+  const effectiveCylindersCount = isSerialized ? preparedCylinders.length : cylindersCount;
   const challanNumber = await generateChallanNumber(tx, challanDate);
   const created = await tx.challan.create({
     data: {
@@ -33,7 +51,7 @@ async function createChallan(tx, opts = {}) {
       customerId,
       gasCode,
       cylinderOwner,
-      cylindersCount,
+      cylindersCount: effectiveCylindersCount,
       quantityCum: quantityCum == null ? null : round2(quantityCum),
       vehicleNumber,
       transactionType,
@@ -43,7 +61,7 @@ async function createChallan(tx, opts = {}) {
     },
   });
 
-  if (preparedCylinders && preparedCylinders.length > 0) {
+  if (isSerialized) {
     const cylinderNumbers = preparedCylinders.map((c) => c.cylinderNumber);
     const dbCylinders = await tx.cylinder.findMany({
       where: { cylinderNumber: { in: cylinderNumbers }, isActive: true },
@@ -108,6 +126,7 @@ async function createChallan(tx, opts = {}) {
       throw new AppError(400, `Hydro test overdue for cylinder(s): ${[...new Set(blockedHydroOverdue)].join(', ')}`);
     }
 
+    const quantityPerCylinder = quantityCum ? round2(quantityCum / cylinderNumbers.length) : null;
     for (const num of cylinderNumbers) {
       const cylinder = dbCylinders.find((d) => d.cylinderNumber === num);
       await assertNoActiveHolding(tx, cylinder.id, cylinder.cylinderNumber);
@@ -121,8 +140,11 @@ async function createChallan(tx, opts = {}) {
         cylinderId: cylinder.id,
         customerId,
         holdingId: holding.id,
+        gasCode: cylinder.gasCode || gasCode || null,
+        ownerCode: cylinder.ownerCode || cylinderOwner || null,
         movementType: MOVEMENT_TYPES.ISSUE,
         movementDate: challanDate,
+        quantityCum: quantityPerCylinder,
         statusBefore: cylinder.status,
         statusAfter: 'WITH_CUSTOMER',
         referenceType: 'CHALLAN',
@@ -139,6 +161,19 @@ async function createChallan(tx, opts = {}) {
         newValue: { cylinderStatus: 'WITH_CUSTOMER', holdingId: holding.id, cylinderNumber: cylinder.cylinderNumber },
       });
     }
+  } else {
+    await recordCylinderMovement(tx, buildQuantityMovementPayload({
+      customerId,
+      gasCode,
+      ownerCode: cylinderOwner || 'COC',
+      movementType: MOVEMENT_TYPES.ISSUE,
+      movementDate: challanDate,
+      quantityCum,
+      cylindersCount,
+      referenceType: 'CHALLAN',
+      referenceNumber: created.challanNumber,
+      operatorId,
+    }));
   }
 
   await createAuditLog(tx, {
@@ -175,7 +210,10 @@ async function convertChallanToBill(tx, challanId, operatorId = null) {
   if (!challan) throw new AppError(404, 'Challan not found');
   if (challan.status === 'BILLED') throw new AppError(409, 'Challan is already converted to a bill');
   if (challan.linkedBillId) throw new AppError(409, 'Challan already linked to a bill');
-  if (!challan.holdings.length) throw new AppError(400, 'Challan has no active cylinder holdings to bill');
+  const isQuantityOnly = !challan.holdings.length && Number(challan.quantityCum || 0) > 0;
+  if (!challan.holdings.length && !isQuantityOnly) {
+    throw new AppError(400, 'Challan has no active cylinder holdings or quantity to bill');
+  }
 
   const customer = challan.customer;
   if (!customer || !customer.isActive) throw new AppError(400, 'Customer is inactive');
@@ -206,6 +244,9 @@ async function convertChallanToBill(tx, challanId, operatorId = null) {
   }
 
   const billNumber = await generateBillNumber(tx, challan.cylinderOwner || 'COC', challan.challanDate);
+  const gasType = isQuantityOnly && challan.gasCode
+    ? await tx.gasType.findUnique({ where: { gasCode: challan.gasCode }, select: { hsnCode: true, gstRate: true } })
+    : null;
 
   // Create Bill
   const bill = await tx.bill.create({
@@ -216,7 +257,7 @@ async function convertChallanToBill(tx, challanId, operatorId = null) {
       gasCode: challan.gasCode || null,
       cylinderOwner: challan.cylinderOwner || 'COC',
       transactionCode: challan.transactionType || 'ISSUE',
-      totalCylinders: challan.cylindersCount || 0,
+      totalCylinders: challan.holdings.length || challan.cylindersCount || 0,
       totalQuantity: totalQuantity || null,
       unitRate: unitRate || null,
       gstRate: round2(gstRate),
@@ -228,23 +269,22 @@ async function convertChallanToBill(tx, challanId, operatorId = null) {
     },
   });
 
-  const quantityPerCylinder = challan.holdings.length ? round2(totalQuantity / challan.holdings.length) : 0;
-  for (const holding of challan.holdings) {
-    const lineTaxableAmount = round2(quantityPerCylinder * unitRate);
+  if (isQuantityOnly) {
+    const lineTaxableAmount = round2(totalQuantity * unitRate);
     const lineTax = calculateGstBreakup(lineTaxableAmount, gstRate, gstMode);
-    const txn = await tx.transaction.create({
+    await tx.transaction.create({
       data: {
         billId: bill.id,
         billNumber,
         billDate: challan.challanDate,
         customerId: challan.customerId,
-        gasCode: holding.cylinder?.gasCode || challan.gasCode || null,
-        cylinderOwner: challan.cylinderOwner || holding.cylinder?.ownerCode || 'COC',
-        cylinderNumber: holding.cylinder?.cylinderNumber || null,
-        quantityCum: quantityPerCylinder || null,
+        gasCode: challan.gasCode || null,
+        cylinderOwner: challan.cylinderOwner || 'COC',
+        cylinderNumber: null,
+        quantityCum: totalQuantity || null,
         unitRate: unitRate || null,
         taxableAmount: lineTaxableAmount || null,
-        hsnCode: holding.cylinder?.gasType?.hsnCode || null,
+        hsnCode: gasType?.hsnCode || null,
         gstRate: round2(gstRate),
         gstAmount: round2(lineTax.gstAmount),
         cgstAmount: round2(lineTax.cgstAmount),
@@ -256,11 +296,41 @@ async function convertChallanToBill(tx, challanId, operatorId = null) {
         operatorId,
       },
     });
+  } else {
+    const quantityPerCylinder = challan.holdings.length ? round2(totalQuantity / challan.holdings.length) : 0;
+    for (const holding of challan.holdings) {
+      const lineTaxableAmount = round2(quantityPerCylinder * unitRate);
+      const lineTax = calculateGstBreakup(lineTaxableAmount, gstRate, gstMode);
+      const txn = await tx.transaction.create({
+        data: {
+          billId: bill.id,
+          billNumber,
+          billDate: challan.challanDate,
+          customerId: challan.customerId,
+          gasCode: holding.cylinder?.gasCode || challan.gasCode || null,
+          cylinderOwner: challan.cylinderOwner || holding.cylinder?.ownerCode || 'COC',
+          cylinderNumber: holding.cylinder?.cylinderNumber || null,
+          quantityCum: quantityPerCylinder || null,
+          unitRate: unitRate || null,
+          taxableAmount: lineTaxableAmount || null,
+          hsnCode: holding.cylinder?.gasType?.hsnCode || null,
+          gstRate: round2(gstRate),
+          gstAmount: round2(lineTax.gstAmount),
+          cgstAmount: round2(lineTax.cgstAmount),
+          sgstAmount: round2(lineTax.sgstAmount),
+          igstAmount: round2(lineTax.igstAmount),
+          orderNumber: challan.challanNumber,
+          transactionCode: challan.transactionType || 'ISSUE',
+          fullOrEmpty: 'F',
+          operatorId,
+        },
+      });
 
-    await tx.cylinderHolding.update({
-      where: { id: holding.id },
-      data: { transactionId: txn.id, status: 'BILLED' },
-    });
+      await tx.cylinderHolding.update({
+        where: { id: holding.id },
+        data: { transactionId: txn.id, status: 'BILLED' },
+      });
+    }
   }
 
   // Create Sales Book entry
