@@ -8,6 +8,7 @@ const { createChallan, convertChallanToBill } = require('../services/challanServ
 const { updateCylinderStatus } = require('../services/cylinderStatusService');
 const { postLedgerEntries } = require('../services/ledgerPostingService');
 const { createAuditLog } = require('../services/auditService');
+const { MOVEMENT_TYPES, recordCylinderMovement } = require('../services/cylinderMovementService');
 const { calculateRent, getEffectiveRate } = require('../services/rentalService');
 const { generateEcrNumber } = require('../services/numberingService');
 const {
@@ -206,6 +207,18 @@ router.post('/:id/partial-return', authenticate, authorize('ADMIN', 'MANAGER', '
           challanDate: challan.challanDate,
           operatorId: req.user.sub,
         },
+      });
+      await recordCylinderMovement(tx, {
+        cylinderId: cylinder.id,
+        customerId: challan.customerId,
+        holdingId: holding.id,
+        movementType: MOVEMENT_TYPES.RETURN,
+        movementDate: returnDate,
+        statusBefore: cylinder.status,
+        statusAfter: 'IN_STOCK',
+        referenceType: 'ECR',
+        referenceNumber: ecrNumber,
+        operatorId: req.user.sub,
       });
 
       // If rent applicable post ledger entries

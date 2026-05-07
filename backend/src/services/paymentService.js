@@ -291,34 +291,7 @@ async function updateCustomerBalance(tx, customerId, asOf) {
 
 async function getCustomerBalance(tx, customerId) {
   await getCustomerOrThrow(tx, customerId);
-  const rows = await tx.$queryRaw`
-    SELECT
-      id,
-      customer_id AS "customerId",
-      as_of AS "asOf",
-      total_debit AS "totalDebit",
-      total_credit AS "totalCredit",
-      balance,
-      updated_at AS "updatedAt"
-    FROM customer_balances
-    WHERE customer_id = ${customerId}
-    LIMIT 1
-  `;
-
-  const row = rows[0];
-  if (!row) {
-    return updateCustomerBalance(tx, customerId, new Date());
-  }
-
-  return {
-    id: row.id,
-    customerId: row.customerId,
-    asOf: row.asOf,
-    totalDebit: asNumber(row.totalDebit),
-    totalCredit: asNumber(row.totalCredit),
-    balance: asNumber(row.balance),
-    updatedAt: row.updatedAt,
-  };
+  return updateCustomerBalance(tx, customerId, new Date());
 }
 
 async function getCustomerOutstanding(tx, customerId) {

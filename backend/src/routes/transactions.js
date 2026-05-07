@@ -20,6 +20,7 @@ const { buildIssueEntries } = require('../services/ledgerValidationService');
 const { updateCylinderStatus, assertNoActiveHolding } = require('../services/cylinderStatusService');
 const { createAuditLog } = require('../services/auditService');
 const { createHolding } = require('../services/cylinderHoldingService');
+const { MOVEMENT_TYPES, recordCylinderMovement } = require('../services/cylinderMovementService');
 const invoiceService = require('../services/invoiceService');
 const whatsappService = require('../services/whatsappService');
 const {
@@ -62,7 +63,7 @@ async function buildBillResponse(tx, bill, { salesBookEntry: salesBookEntryIn, c
     salesBook: salesBookEntry,
     gstBreakup,
     companyGstin,
-    hsnCode: bill.items?.[0]?.cylinder?.gasType?.hsnCode || null,
+    hsnCode: bill.items?.[0]?.hsnCode || bill.items?.[0]?.cylinder?.gasType?.hsnCode || null,
   };
 }
 
@@ -217,6 +218,7 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
         hydroTestDate: true,
         nextTestDue: true,
         gasCode: true,
+        gasType: { select: { hsnCode: true, gstRate: true } },
       },
     });
 
@@ -341,6 +343,8 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
       const cylinder = cylinderByNumber.get(item.cylinderNumber);
       await assertNoActiveHolding(tx, cylinder.id, cylinder.cylinderNumber);
 
+      const lineTaxableAmount = round2((item.quantityCum || 0) * unitRate);
+      const lineTax = calculateGstBreakup(lineTaxableAmount, gstRate, gstMode);
       const txn = await tx.transaction.create({
         data: {
           billId: bill.id,
@@ -351,6 +355,14 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
           cylinderOwner: cylinderOwner || 'COC',
           cylinderNumber: item.cylinderNumber,
           quantityCum: round2(item.quantityCum || 0) || null,
+          unitRate: unitRate || null,
+          taxableAmount: lineTaxableAmount || null,
+          hsnCode: cylinder.gasType?.hsnCode || null,
+          gstRate: round2(gstRate),
+          gstAmount: round2(lineTax.gstAmount),
+          cgstAmount: round2(lineTax.cgstAmount),
+          sgstAmount: round2(lineTax.sgstAmount),
+          igstAmount: round2(lineTax.igstAmount),
           orderNumber: orderNumber || null,
           transactionCode: transactionCode || 'ISSUE',
           fullOrEmpty: 'F',
@@ -360,6 +372,19 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
 
       await updateCylinderStatus(tx, cylinder.id, 'WITH_CUSTOMER', { incrementFillCount: true });
       const holding = await createHolding(tx, { cylinderId: cylinder.id, customerId: customerIdNum, transactionId: txn.id, issuedAt: effectiveBillDate, status: 'BILLED' });
+      await recordCylinderMovement(tx, {
+        cylinderId: cylinder.id,
+        customerId: customerIdNum,
+        holdingId: holding.id,
+        movementType: MOVEMENT_TYPES.ISSUE,
+        movementDate: effectiveBillDate,
+        quantityCum: item.quantityCum || null,
+        statusBefore: cylinder.status,
+        statusAfter: 'WITH_CUSTOMER',
+        referenceType: 'BILL',
+        referenceNumber: billNumber,
+        operatorId: req.user.sub,
+      });
 
       await createAuditLog(tx, {
         action: 'ISSUE_CYLINDER',

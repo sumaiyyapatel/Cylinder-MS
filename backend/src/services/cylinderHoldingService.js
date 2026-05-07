@@ -4,6 +4,7 @@ const { postLedgerEntries } = require('./ledgerPostingService');
 const { updateCylinderStatus } = require('./cylinderStatusService');
 const { generateEcrNumber } = require('./numberingService');
 const { createAuditLog } = require('./auditService');
+const { MOVEMENT_TYPES, recordCylinderMovement } = require('./cylinderMovementService');
 
 /**
  * Create a holding record for a cylinder issue.
@@ -105,6 +106,19 @@ async function returnCylinder(tx, {
       operatorId: operatorId || null,
       quantityCum: quantityCum == null ? null : round2(quantityCum),
     },
+  });
+  await recordCylinderMovement(tx, {
+    cylinderId: holding.cylinderId,
+    customerId: holding.customerId,
+    holdingId,
+    movementType: MOVEMENT_TYPES.RETURN,
+    movementDate: returnDate,
+    quantityCum,
+    statusBefore: holding.cylinder?.status,
+    statusAfter: 'IN_STOCK',
+    referenceType: 'ECR',
+    referenceNumber: ecrNumber,
+    operatorId: operatorId || performedBy || null,
   });
 
   if (rentAmount && rentAmount > 0) {

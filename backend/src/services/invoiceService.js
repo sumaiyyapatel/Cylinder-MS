@@ -6,9 +6,12 @@ function renderInvoiceHtml(bill) {
   const itemsHtml = (bill.items || []).map(i => `
     <tr>
       <td>${i.cylinderNumber || (i.cylinder && i.cylinder.cylinderNumber) || ''}</td>
+      <td>${i.hsnCode || ''}</td>
       <td style="text-align:right">${i.quantityCum || ''}</td>
-      <td style="text-align:right">${bill.unitRate || ''}</td>
-      <td style="text-align:right">${((i.quantityCum || 0) * (bill.unitRate || 0)).toFixed(2)}</td>
+      <td style="text-align:right">${i.unitRate || bill.unitRate || ''}</td>
+      <td style="text-align:right">${i.taxableAmount || ((i.quantityCum || 0) * (bill.unitRate || 0)).toFixed(2)}</td>
+      <td style="text-align:right">${i.gstRate || bill.gstRate || ''}</td>
+      <td style="text-align:right">${i.gstAmount || ''}</td>
     </tr>`).join('\n');
 
   return `
@@ -31,7 +34,15 @@ function renderInvoiceHtml(bill) {
     <hr />
     <table>
       <thead>
-        <tr><th>Cylinder</th><th style="text-align:right">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th></tr>
+        <tr>
+          <th>Cylinder</th>
+          <th>HSN</th>
+          <th style="text-align:right">Qty</th>
+          <th style="text-align:right">Rate</th>
+          <th style="text-align:right">Taxable</th>
+          <th style="text-align:right">GST %</th>
+          <th style="text-align:right">GST</th>
+        </tr>
       </thead>
       <tbody>
         ${itemsHtml}

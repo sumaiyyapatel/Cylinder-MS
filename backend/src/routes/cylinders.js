@@ -42,7 +42,12 @@ router.get('/:id/timeline', authenticate, asyncHandler(async (req, res) => {
   });
   if (!cylinder || !cylinder.isActive) throw new AppError(404, 'Cylinder not found');
 
-  const [holdings, ecrs] = await Promise.all([
+  const [movements, holdings, ecrs] = await Promise.all([
+    prisma.cylinderMovement.findMany({
+      where: { cylinderId: id },
+      orderBy: [{ movementDate: 'asc' }, { id: 'asc' }],
+      include: { customer: { select: { id: true, code: true, name: true } } },
+    }),
     prisma.cylinderHolding.findMany({
       where: { cylinderId: id },
       orderBy: [{ issuedAt: 'asc' }, { id: 'asc' }],
@@ -69,7 +74,8 @@ router.get('/:id/timeline', authenticate, asyncHandler(async (req, res) => {
     },
   ];
 
-  if (cylinder.hydroTestDate) {
+  const hasHydroMovement = movements.some((movement) => movement.movementType === 'HYDRO_TESTED');
+  if (cylinder.hydroTestDate && !hasHydroMovement) {
     events.push({
       type: 'HYDRO_TESTED',
       label: 'Hydro tested',
@@ -79,40 +85,61 @@ router.get('/:id/timeline', authenticate, asyncHandler(async (req, res) => {
     });
   }
 
-  for (const holding of holdings) {
-    events.push({
-      type: holding.challanId ? 'CHALLAN_ISSUED' : 'ISSUED',
-      label: holding.challanId ? 'Issued on challan' : 'Issued on bill',
-      date: holding.issuedAt,
-      detail: holding.transaction?.billNumber || holding.challan?.challanNumber || '-',
-      customer: holding.customer,
-      status: holding.status,
-      holdDays: calculateHoldDays(holding.issuedAt, holding.returnedAt || new Date()),
-    });
-
-    if (holding.returnedAt) {
+  if (movements.length) {
+    for (const movement of movements) {
+      const labels = {
+        ISSUE: 'Issued',
+        RETURN: 'Returned',
+        TRANSFER: 'Transferred',
+        HYDRO_TESTED: 'Hydro tested',
+        STATUS_CHANGE: 'Status changed',
+      };
       events.push({
-        type: 'RETURNED',
-        label: 'Returned',
-        date: holding.returnedAt,
-        detail: holding.rentAmount ? `Rent ${holding.rentAmount}` : 'Returned to stock',
-        customer: holding.customer,
-        status: 'RETURNED',
-        holdDays: holding.holdDays || calculateHoldDays(holding.issuedAt, holding.returnedAt),
+        type: movement.movementType,
+        label: labels[movement.movementType] || movement.movementType.replace(/_/g, ' '),
+        date: movement.movementDate,
+        detail: movement.referenceNumber || movement.referenceType || '-',
+        customer: movement.customer,
+        status: movement.statusAfter || movement.statusBefore || null,
+        holdDays: null,
       });
     }
-  }
+  } else {
+    for (const holding of holdings) {
+      events.push({
+        type: holding.challanId ? 'CHALLAN_ISSUED' : 'ISSUED',
+        label: holding.challanId ? 'Issued on challan' : 'Issued on bill',
+        date: holding.issuedAt,
+        detail: holding.transaction?.billNumber || holding.challan?.challanNumber || '-',
+        customer: holding.customer,
+        status: holding.status,
+        holdDays: calculateHoldDays(holding.issuedAt, holding.returnedAt || new Date()),
+      });
 
-  for (const ecr of ecrs) {
-    events.push({
-      type: 'ECR',
-      label: 'ECR posted',
-      date: ecr.ecrDate,
-      detail: `${ecr.ecrNumber}${ecr.rentAmount ? ` / rent ${ecr.rentAmount}` : ''}`,
-      customer: ecr.customer,
-      status: 'RETURNED',
-      holdDays: ecr.holdDays || null,
-    });
+      if (holding.returnedAt) {
+        events.push({
+          type: 'RETURNED',
+          label: 'Returned',
+          date: holding.returnedAt,
+          detail: holding.rentAmount ? `Rent ${holding.rentAmount}` : 'Returned to stock',
+          customer: holding.customer,
+          status: 'RETURNED',
+          holdDays: holding.holdDays || calculateHoldDays(holding.issuedAt, holding.returnedAt),
+        });
+      }
+    }
+
+    for (const ecr of ecrs) {
+      events.push({
+        type: 'ECR',
+        label: 'ECR posted',
+        date: ecr.ecrDate,
+        detail: `${ecr.ecrNumber}${ecr.rentAmount ? ` / rent ${ecr.rentAmount}` : ''}`,
+        customer: ecr.customer,
+        status: 'RETURNED',
+        holdDays: ecr.holdDays || null,
+      });
+    }
   }
 
   if (['DAMAGED', 'CONDEMNED', 'UNDER_TEST'].includes(cylinder.status)) {
@@ -130,8 +157,8 @@ router.get('/:id/timeline', authenticate, asyncHandler(async (req, res) => {
   res.json({
     cylinder,
     summary: {
-      totalIssues: holdings.length,
-      totalReturns: ecrs.length,
+      totalIssues: movements.length ? movements.filter((movement) => movement.movementType === 'ISSUE').length : holdings.length,
+      totalReturns: movements.length ? movements.filter((movement) => movement.movementType === 'RETURN').length : ecrs.length,
       currentStatus: cylinder.status,
       lastEvent: events[0] || null,
     },

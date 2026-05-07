@@ -5,6 +5,7 @@ const { createAuditLog } = require('./auditService');
 const { updateCylinderStatus, assertNoActiveHolding } = require('./cylinderStatusService');
 const { postLedgerEntries } = require('./ledgerPostingService');
 const { buildIssueEntries } = require('./ledgerValidationService');
+const { MOVEMENT_TYPES, recordCylinderMovement } = require('./cylinderMovementService');
 
 async function createChallan(tx, opts = {}) {
   const {
@@ -116,6 +117,18 @@ async function createChallan(tx, opts = {}) {
       const holding = await tx.cylinderHolding.create({
         data: { cylinderId: cylinder.id, customerId, challanId: created.id, issuedAt: challanDate, status: 'HOLDING' },
       });
+      await recordCylinderMovement(tx, {
+        cylinderId: cylinder.id,
+        customerId,
+        holdingId: holding.id,
+        movementType: MOVEMENT_TYPES.ISSUE,
+        movementDate: challanDate,
+        statusBefore: cylinder.status,
+        statusAfter: 'WITH_CUSTOMER',
+        referenceType: 'CHALLAN',
+        referenceNumber: created.challanNumber,
+        operatorId,
+      });
 
       await createAuditLog(tx, {
         action: 'ISSUE_CYLINDER',
@@ -153,7 +166,7 @@ async function convertChallanToBill(tx, challanId, operatorId = null) {
       customer: { select: { id: true, code: true, gstin: true, isActive: true } },
       holdings: {
         where: { status: { in: ['HOLDING', 'BILLED'] } },
-        include: { cylinder: true },
+        include: { cylinder: { include: { gasType: { select: { hsnCode: true, gstRate: true } } } } },
         orderBy: { id: 'asc' },
       },
     },
@@ -217,6 +230,8 @@ async function convertChallanToBill(tx, challanId, operatorId = null) {
 
   const quantityPerCylinder = challan.holdings.length ? round2(totalQuantity / challan.holdings.length) : 0;
   for (const holding of challan.holdings) {
+    const lineTaxableAmount = round2(quantityPerCylinder * unitRate);
+    const lineTax = calculateGstBreakup(lineTaxableAmount, gstRate, gstMode);
     const txn = await tx.transaction.create({
       data: {
         billId: bill.id,
@@ -227,6 +242,14 @@ async function convertChallanToBill(tx, challanId, operatorId = null) {
         cylinderOwner: challan.cylinderOwner || holding.cylinder?.ownerCode || 'COC',
         cylinderNumber: holding.cylinder?.cylinderNumber || null,
         quantityCum: quantityPerCylinder || null,
+        unitRate: unitRate || null,
+        taxableAmount: lineTaxableAmount || null,
+        hsnCode: holding.cylinder?.gasType?.hsnCode || null,
+        gstRate: round2(gstRate),
+        gstAmount: round2(lineTax.gstAmount),
+        cgstAmount: round2(lineTax.cgstAmount),
+        sgstAmount: round2(lineTax.sgstAmount),
+        igstAmount: round2(lineTax.igstAmount),
         orderNumber: challan.challanNumber,
         transactionCode: challan.transactionType || 'ISSUE',
         fullOrEmpty: 'F',

@@ -12,6 +12,7 @@ const { AppError } = require('../middleware/errorHandler');
 const { generateTransferNumber } = require('./numberingService');
 const { round2 } = require('./businessRules');
 const { createAuditLog } = require('./auditService');
+const { MOVEMENT_TYPES, recordCylinderMovement } = require('./cylinderMovementService');
 
 const COMPANY_CODES = {
   PATEL: 'POC',
@@ -91,6 +92,16 @@ async function createTransfer(tx, opts = {}) {
       await tx.cylinder.update({
         where: { id: cyl.id },
         data: { ownerCode: dest },
+      });
+      await recordCylinderMovement(tx, {
+        cylinderId: cyl.id,
+        movementType: MOVEMENT_TYPES.TRANSFER,
+        movementDate: transferDate,
+        statusBefore: cyl.status,
+        statusAfter: cyl.status,
+        referenceType: 'TRANSFER',
+        referenceNumber: transferNumber,
+        operatorId,
       });
     }
   }

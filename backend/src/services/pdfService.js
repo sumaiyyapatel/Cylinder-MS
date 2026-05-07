@@ -218,14 +218,15 @@ async function streamBillPdf(res, id, context = {}) {
   const { company, bill } = data;
   const itemRows = (bill.items || []).map((item, index) => {
     const quantity = asNumber(item.quantityCum);
-    const unitRate = asNumber(bill.unitRate);
-    const amount = quantity * unitRate;
-    const gst = amount * (asNumber(bill.gstRate) / 100);
+    const unitRate = asNumber(item.unitRate || bill.unitRate);
+    const amount = asNumber(item.taxableAmount) || quantity * unitRate;
+    const gst = asNumber(item.gstAmount) || amount * (asNumber(item.gstRate || bill.gstRate) / 100);
 
     return [
       index + 1,
       item.cylinderNumber || item.cylinder?.cylinderNumber || '-',
       item.cylinder?.gasType?.name || bill.gasCode || '-',
+      item.hsnCode || item.cylinder?.gasType?.hsnCode || '-',
       quantity ? quantity.toFixed(2) : '0.00',
       formatAmount(unitRate),
       formatAmount(amount),
@@ -260,10 +261,10 @@ async function streamBillPdf(res, id, context = {}) {
     y = drawTable(
       doc,
       y,
-      ['Sr', 'Cylinder', 'Gas', 'Qty', 'Rate', 'Amount', 'GST'],
-      itemRows.length ? itemRows : [['-', '-', '-', '0.00', '0.00', '0.00', '0.00']],
-      [34, 100, 100, 60, 65, 78, 78],
-      { rightAlignFrom: 3 }
+      ['Sr', 'Cylinder', 'Gas', 'HSN', 'Qty', 'Rate', 'Taxable', 'GST'],
+      itemRows.length ? itemRows : [['-', '-', '-', '-', '0.00', '0.00', '0.00', '0.00']],
+      [30, 86, 72, 56, 55, 60, 70, 66],
+      { rightAlignFrom: 4 }
     );
 
     y += 18;
