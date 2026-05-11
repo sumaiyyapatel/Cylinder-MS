@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, FileText, PackageCheck, Plus, RotateCcw, ScanLine, Truck } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { formatDate, formatINR } from "@/lib/utils-format";
 import { generateEcrPDF } from "@/lib/pdf-export";
 import { addPendingRequest, useOfflineSync } from "@/lib/offlineQueue";
@@ -32,6 +33,8 @@ const createInitialForm = () => ({
 
 export default function EcrPage() {
   const qc = useQueryClient();
+  const { hasRole } = useAuth();
+  const canCreateEcr = hasRole("ADMIN", "MANAGER", "OPERATOR");
   const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(createInitialForm);
@@ -156,14 +159,16 @@ export default function EcrPage() {
               Operators can verify customer, hold days, and movement details before closing the return.
             </p>
           </div>
-          <Button
-            data-testid="new-ecr-btn"
-            onClick={() => (showForm ? closeForm() : setShowForm(true))}
-            className="h-11 bg-emerald-600 hover:bg-emerald-700"
-          >
-            <Plus className="mr-1 h-4 w-4" />
-            {showForm ? "Close form" : "New ECR"}
-          </Button>
+          {canCreateEcr ? (
+            <Button
+              data-testid="new-ecr-btn"
+              onClick={() => (showForm ? closeForm() : setShowForm(true))}
+              className="h-11 bg-emerald-600 hover:bg-emerald-700"
+            >
+              <Plus className="mr-1 h-4 w-4" />
+              {showForm ? "Close form" : "New ECR"}
+            </Button>
+          ) : null}
         </div>
         {pendingCount > 0 ? (
           <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
@@ -172,7 +177,7 @@ export default function EcrPage() {
         ) : null}
       </section>
 
-      {showForm ? (
+      {showForm && canCreateEcr ? (
         <form onSubmit={handleSubmit} className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_340px]" data-testid="ecr-entry-form">
           <div className="space-y-6">
             <WorkflowSection
@@ -380,13 +385,13 @@ export default function EcrPage() {
         <EmptyState
           icon={RotateCcw}
           title="No ECR records yet"
-          description="Create the first return from this screen. The updated flow now checks the active holding before save."
-          action={
+          description={canCreateEcr ? "Create the first return from this screen. The updated flow now checks the active holding before save." : "No ECR records match the current list."}
+          action={canCreateEcr ? (
             <Button onClick={() => setShowForm(true)} className="bg-emerald-600 hover:bg-emerald-700">
               <Plus className="mr-1 h-4 w-4" />
               New ECR
             </Button>
-          }
+          ) : null}
         />
       ) : (
         <>

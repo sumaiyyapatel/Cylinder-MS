@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function CashVoucherPage() {
   const { hasRole } = useAuth();
-  const canEdit = hasRole("ADMIN", "MANAGER", "ACCOUNTANT");
+  const canEdit = hasRole("ADMIN", "ACCOUNTANT");
 
   const [form, setForm] = useState({
     voucherDate: new Date().toISOString().split("T")[0],

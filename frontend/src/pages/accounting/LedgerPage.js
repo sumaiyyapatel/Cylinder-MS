@@ -55,7 +55,7 @@ export default function LedgerPage() {
     saveMut.mutate(payload);
   };
 
-  const canEdit = hasRole("ADMIN", "MANAGER", "ACCOUNTANT");
+  const canEdit = hasRole("ADMIN", "ACCOUNTANT");
 
   return (
     <div className="space-y-4" data-testid="ledger-page">

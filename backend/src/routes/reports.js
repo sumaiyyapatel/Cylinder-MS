@@ -27,8 +27,8 @@ const router = express.Router();
 
 const REPORT_ROLES = {
   operations: ['ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'],
-  sales: ['ADMIN', 'MANAGER', 'ACCOUNTANT'],
-  accounting: ['ADMIN', 'MANAGER', 'ACCOUNTANT'],
+  sales: ['ADMIN', 'MANAGER', 'ACCOUNTANT', 'VIEWER'],
+  accounting: ['ADMIN', 'MANAGER', 'ACCOUNTANT', 'VIEWER'],
 };
 
 const REPORT_TYPE_CATEGORY = {

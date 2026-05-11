@@ -16,6 +16,7 @@ import { Eye, Plus, Search, Pencil, Trash2 } from "lucide-react";
 export default function CustomersPage() {
   const { hasRole } = useAuth();
   const qc = useQueryClient();
+  const canManageCustomers = hasRole("ADMIN", "MANAGER");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const limit = 25;
@@ -79,7 +80,7 @@ export default function CustomersPage() {
     <div className="space-y-4" data-testid="customers-page">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-slate-900" style={{ fontFamily: 'var(--font-heading)' }}>Customers</h1>
-        {hasRole("ADMIN", "MANAGER", "OPERATOR") && (
+        {canManageCustomers && (
           <Button data-testid="add-customer-btn" onClick={openNew} className="h-9 bg-blue-600 hover:bg-blue-700">
             <Plus className="w-4 h-4 mr-1" /> Add Customer
           </Button>
@@ -133,7 +134,7 @@ export default function CustomersPage() {
                         <Link to={`/customers/${c.id}/command`} title="Command center" className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-emerald-600">
                           <Eye className="w-3.5 h-3.5" />
                         </Link>
-                        {hasRole("ADMIN", "MANAGER", "OPERATOR") && (
+                        {canManageCustomers && (
                           <button data-testid={`edit-customer-${c.id}`} onClick={() => openEdit(c)} className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-blue-600"><Pencil className="w-3.5 h-3.5" /></button>
                         )}
                         {hasRole("ADMIN") && (

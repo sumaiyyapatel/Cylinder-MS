@@ -18,6 +18,7 @@ const STATUSES = ["IN_STOCK", "WITH_CUSTOMER", "IN_TRANSIT", "DAMAGED", "UNDER_T
 export default function CylindersPage() {
   const { hasRole } = useAuth();
   const qc = useQueryClient();
+  const canManageCylinders = hasRole("ADMIN", "MANAGER");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(1);
@@ -64,7 +65,7 @@ export default function CylindersPage() {
     <div className="space-y-4" data-testid="cylinders-page">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-slate-900" style={{ fontFamily: 'var(--font-heading)' }}>Cylinders</h1>
-        {hasRole("ADMIN", "MANAGER", "OPERATOR") && (
+        {canManageCylinders && (
           <Button data-testid="add-cylinder-btn" onClick={openNew} className="h-9 bg-blue-600 hover:bg-blue-700">
             <Plus className="w-4 h-4 mr-1" /> Add Cylinder
           </Button>
@@ -137,7 +138,7 @@ export default function CylindersPage() {
                         <Link to={`/cylinders/${c.id}/timeline`} title="Timeline" className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-emerald-600">
                           <History className="w-3.5 h-3.5" />
                         </Link>
-                        {hasRole("ADMIN", "MANAGER", "OPERATOR") && (
+                        {canManageCylinders && (
                           <button data-testid={`edit-cylinder-${c.id}`} onClick={() => openEdit(c)} className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-blue-600"><Pencil className="w-3.5 h-3.5" /></button>
                         )}
                         {hasRole("ADMIN") && (

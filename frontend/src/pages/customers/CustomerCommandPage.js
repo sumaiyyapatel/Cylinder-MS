@@ -3,11 +3,13 @@ import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, CreditCard, History, Package, ReceiptText, Wallet } from "lucide-react";
 import api from "@/lib/api";
-import { formatDate, formatINR } from "@/lib/utils-format";
+import { useAuth } from "@/lib/auth";
+import { canAccessPath } from "@/lib/iam";
+import { formatDate, formatINR, orderStatusColors } from "@/lib/utils-format";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ux/workflow";
 
-const tabs = ["transactions", "holdings", "bills", "payments", "ledger", "route history"];
+const tabs = ["transactions", "orders", "holdings", "bills", "payments", "ledger", "route history"];
 
 function SummaryCard({ label, value, hint, danger }) {
   return (
@@ -41,15 +43,24 @@ function SimpleTable({ columns, rows, empty }) {
 
 export default function CustomerCommandPage() {
   const { id } = useParams();
+  const { user, hasRole } = useAuth();
   const [activeTab, setActiveTab] = useState("transactions");
   const { data, isLoading } = useQuery({
     queryKey: ["customer-command", id],
     queryFn: () => api.get(`/customers/${id}/command`).then((response) => response.data),
     enabled: !!id,
   });
+  const { data: ordersData, isLoading: ordersLoading } = useQuery({
+    queryKey: ["customer-orders", id],
+    queryFn: () => api.get("/orders", { params: { customerId: id, limit: 50 } }).then((response) => response.data),
+    enabled: !!id && activeTab === "orders",
+  });
 
   const customer = data?.customer;
   const summary = data?.summary || {};
+  const canIssue = hasRole("ADMIN", "MANAGER", "OPERATOR") && canAccessPath(user?.role, "/transactions");
+  const canReturn = hasRole("ADMIN", "MANAGER", "OPERATOR") && canAccessPath(user?.role, "/ecr");
+  const canReceive = hasRole("ADMIN", "ACCOUNTANT") && canAccessPath(user?.role, "/accounting/payment-receipt");
 
   const tabContent = useMemo(() => {
     if (!data) return null;
@@ -60,6 +71,26 @@ export default function CustomerCommandPage() {
         { key: "cylinder", label: "Cylinder", render: (row) => row.cylinderNumber || "-" },
         { key: "gas", label: "Gas", render: (row) => row.gasCode || "-" },
         { key: "qty", label: "Qty", render: (row) => row.quantityCum || "-" },
+      ]} />;
+    }
+    if (activeTab === "orders") {
+      if (ordersLoading) return <div className="py-8 text-center text-sm text-muted-foreground">Loading orders...</div>;
+      return <SimpleTable empty="No customer orders" rows={ordersData?.data || []} columns={[
+        { key: "date", label: "Date", render: (row) => formatDate(row.orderDate) },
+        { key: "order", label: "Order", render: (row) => <span className="font-mono text-xs font-semibold">{row.orderNumber}</span> },
+        { key: "gas", label: "Gas", render: (row) => row.gasCode || "-" },
+        { key: "owner", label: "Owner", render: (row) => row.ownerCode || "-" },
+        { key: "qty", label: "Qty", render: (row) => row.quantityCyl || "-" },
+        { key: "rate", label: "Rate", render: (row) => row.rate ? formatINR(row.rate) : "-" },
+        {
+          key: "status",
+          label: "Status",
+          render: (row) => (
+            <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${orderStatusColors[row.status] || ""}`}>
+              {row.status || "-"}
+            </span>
+          ),
+        },
       ]} />;
     }
     if (activeTab === "holdings") {
@@ -104,7 +135,7 @@ export default function CustomerCommandPage() {
       { key: "type", label: "Type", render: (row) => row.bill ? "Bill" : "Challan" },
       { key: "points", label: "Points", render: (row) => Array.isArray(row.route) ? row.route.length : "-" },
     ]} />;
-  }, [activeTab, data]);
+  }, [activeTab, data, ordersData?.data, ordersLoading]);
 
   if (isLoading) return <div className="page-shell text-sm text-muted-foreground">Loading customer command center...</div>;
   if (!data) return <EmptyState title="Customer not found" description="Open a valid customer from the customer list." />;
@@ -122,9 +153,9 @@ export default function CustomerCommandPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             <span className={`inline-flex h-10 items-center rounded-lg px-3 text-sm font-bold ${riskClass}`}>{summary.riskLevel} RISK</span>
-            <Button asChild variant="outline" className="h-10"><Link to="/transactions"><Package className="h-4 w-4" /> Issue</Link></Button>
-            <Button asChild variant="outline" className="h-10"><Link to="/ecr"><History className="h-4 w-4" /> Return</Link></Button>
-            <Button asChild className="h-10 bg-[var(--color-accent)] hover:bg-[var(--color-accent-strong)]"><Link to="/accounting/payment-receipt"><CreditCard className="h-4 w-4" /> Receive</Link></Button>
+            {canIssue ? <Button asChild variant="outline" className="h-10"><Link to="/transactions"><Package className="h-4 w-4" /> Issue</Link></Button> : null}
+            {canReturn ? <Button asChild variant="outline" className="h-10"><Link to="/ecr"><History className="h-4 w-4" /> Return</Link></Button> : null}
+            {canReceive ? <Button asChild className="h-10 bg-[var(--color-accent)] hover:bg-[var(--color-accent-strong)]"><Link to="/accounting/payment-receipt"><CreditCard className="h-4 w-4" /> Receive</Link></Button> : null}
           </div>
         </div>
       </section>

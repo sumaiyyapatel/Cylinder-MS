@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { formatDate } from "@/lib/utils-format";
 import { generateBillPDF } from "@/lib/pdf-export";
 import { addPendingRequest, useOfflineSync } from "@/lib/offlineQueue";
@@ -48,6 +49,8 @@ function formatQuantity(value) {
 
 export default function TransactionsPage() {
   const qc = useQueryClient();
+  const { hasRole } = useAuth();
+  const canCreateBill = hasRole("ADMIN", "MANAGER", "OPERATOR");
   const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
   const [routeTrace, setRouteTrace] = useState([]);
@@ -296,14 +299,16 @@ export default function TransactionsPage() {
               Grouped inputs, scan-first cylinder entry, and a live summary reduce missed fields before posting.
             </p>
           </div>
-          <Button
-            data-testid="new-bill-btn"
-            onClick={() => (showForm ? closeForm() : setShowForm(true))}
-            className="h-11 bg-[var(--color-accent)] hover:bg-[var(--color-accent-strong)]"
-          >
-            <Plus className="mr-1 h-4 w-4" />
-            {showForm ? "Close form" : "New Bill"}
-          </Button>
+          {canCreateBill ? (
+            <Button
+              data-testid="new-bill-btn"
+              onClick={() => (showForm ? closeForm() : setShowForm(true))}
+              className="h-11 bg-[var(--color-accent)] hover:bg-[var(--color-accent-strong)]"
+            >
+              <Plus className="mr-1 h-4 w-4" />
+              {showForm ? "Close form" : "New Bill"}
+            </Button>
+          ) : null}
         </div>
         {pendingCount > 0 ? (
           <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
@@ -312,7 +317,7 @@ export default function TransactionsPage() {
         ) : null}
       </section>
 
-      {showForm ? (
+      {showForm && canCreateBill ? (
         <form onSubmit={handleSubmit} className="grid gap-6 xl:grid-cols-[minmax(0,1.55fr)_360px]" data-testid="bill-entry-form">
           <div className="space-y-6">
             <WorkflowSection
@@ -603,13 +608,13 @@ export default function TransactionsPage() {
         <EmptyState
           icon={FileText}
           title="No bills created yet"
-          description="Create the first bill from this screen. The form now groups issue details, cylinder lines, and review into one flow."
-          action={
+          description={canCreateBill ? "Create the first bill from this screen. The form now groups issue details, cylinder lines, and review into one flow." : "No bills match the current list."}
+          action={canCreateBill ? (
             <Button onClick={() => setShowForm(true)} className="bg-[var(--color-accent)] hover:bg-[var(--color-accent-strong)]">
               <Plus className="mr-1 h-4 w-4" />
               New Bill
             </Button>
-          }
+          ) : null}
         />
       ) : (
         <>
@@ -647,10 +652,12 @@ export default function TransactionsPage() {
                       <FileText className="h-3.5 w-3.5" />
                       PDF
                     </Button>
-                    <Button type="button" size="sm" variant="outline" className="flex-1" onClick={() => handleSendWhatsApp(bill)}>
-                      <Send className="h-3.5 w-3.5" />
-                      WhatsApp
-                    </Button>
+                    {canCreateBill ? (
+                      <Button type="button" size="sm" variant="outline" className="flex-1" onClick={() => handleSendWhatsApp(bill)}>
+                        <Send className="h-3.5 w-3.5" />
+                        WhatsApp
+                      </Button>
+                    ) : null}
                   </div>
                 </CardContent>
               </Card>
@@ -694,14 +701,16 @@ export default function TransactionsPage() {
                                 <CheckCircle className="h-4 w-4" />
                               </span>
                             ) : null}
-                            <button
-                              type="button"
-                              onClick={() => handleSendWhatsApp(bill)}
-                              title="Send WhatsApp"
-                              className="rounded p-1 text-green-600 hover:bg-slate-100"
-                            >
-                              <Send className="h-3.5 w-3.5" />
-                            </button>
+                            {canCreateBill ? (
+                              <button
+                                type="button"
+                                onClick={() => handleSendWhatsApp(bill)}
+                                title="Send WhatsApp"
+                                className="rounded p-1 text-green-600 hover:bg-slate-100"
+                              >
+                                <Send className="h-3.5 w-3.5" />
+                              </button>
+                            ) : null}
                             <button
                               type="button"
                               onClick={() => handleBillPdf(bill)}

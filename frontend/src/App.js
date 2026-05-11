@@ -11,7 +11,6 @@ import CylinderTimelinePage from "@/pages/cylinders/CylinderTimelinePage";
 import GasTypesPage from "@/pages/masters/GasTypesPage";
 import AreasPage from "@/pages/masters/AreasPage";
 import RateListPage from "@/pages/masters/RateListPage";
-import OrdersPage from "@/pages/masters/OrdersPage";
 import TransactionsPage from "@/pages/transactions/TransactionsPage";
 import EcrPage from "@/pages/transactions/EcrPage";
 import ChallansPage from "@/pages/transactions/ChallansPage";
@@ -29,6 +28,8 @@ import UsersPage from "@/pages/settings/UsersPage";
 import AppLayout from "@/components/layout/AppLayout";
 
 function AccessDenied() {
+  const { user } = useAuth();
+
   return (
     <div className="page-shell">
       <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
@@ -37,7 +38,7 @@ function AccessDenied() {
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
           The workspace now only shows modules that match the signed-in user role.
         </p>
-        <Link className="mt-5 inline-flex h-10 items-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground" to="/">
+        <Link className="mt-5 inline-flex h-10 items-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground" to={getDefaultPathForRole(user?.role)}>
           Open dashboard
         </Link>
       </section>
@@ -77,7 +78,7 @@ function AppRoutes() {
   }
   return (
     <Routes>
-      <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
+      <Route path="/login" element={user ? <Navigate to={getDefaultPathForRole(user.role)} replace /> : <LoginPage />} />
       <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
         <Route index element={<DashboardPage />} />
         <Route path="operations" element={<OperationsConsolePage />} />
@@ -88,7 +89,7 @@ function AppRoutes() {
         <Route path="gas-types" element={<GasTypesPage />} />
         <Route path="areas" element={<AreasPage />} />
         <Route path="rate-list" element={<RateListPage />} />
-        <Route path="orders" element={<OrdersPage />} />
+        <Route path="orders" element={<Navigate to="/customers" replace />} />
         <Route path="transactions" element={<TransactionsPage />} />
         <Route path="ecr" element={<EcrPage />} />
         <Route path="challans" element={<ChallansPage />} />

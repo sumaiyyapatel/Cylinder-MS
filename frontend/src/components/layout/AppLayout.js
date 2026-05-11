@@ -9,7 +9,6 @@ import {
   Building2,
   ChevronDown,
   ChevronRight,
-  ClipboardList,
   CreditCard,
   FileText,
   Flame,
@@ -41,80 +40,138 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useAuth } from "@/lib/auth";
-import { filterAllowedItems } from "@/lib/iam";
+import { ROLES, filterAllowedItems } from "@/lib/iam";
 import { formatDate, getFinancialYear } from "@/lib/utils-format";
 import api from "@/lib/api";
 
 const navGroups = [
   {
-    label: "Main",
+    label: "Workspace",
     icon: LayoutDashboard,
+    defaultOpen: true,
     items: [
-      { to: "/", icon: LayoutDashboard, label: "Dashboard" },
-      { to: "/notifications", icon: BellRing, label: "Notifications", badge: "alerts" },
-      { to: "/settings", icon: Settings, label: "Settings" },
-      { to: "/users", icon: UserCog, label: "Users" },
+      { to: "/", icon: LayoutDashboard, label: "Dashboard", description: "Role-specific daily status and shortcuts." },
+      { to: "/notifications", icon: BellRing, label: "Notifications", badge: "alerts", description: "Unresolved alerts that need review." },
+      { to: "/operations", icon: Truck, label: "Dispatch console", description: "Plan dispatch runs and close field queues." },
     ],
   },
   {
-    label: "Reports",
-    icon: BarChart3,
-    items: [
-      { to: "/reports/operations", icon: Truck, label: "Operations Report" },
-      { to: "/reports/sales", icon: BarChart3, label: "Sales Report" },
-      { to: "/reports/accounting", icon: BookOpen, label: "Accounting Report" },
-    ],
-  },
-  {
-    label: "Masters",
-    icon: Package,
-    items: [
-      { to: "/customers", icon: Users, label: "Customers" },
-      { to: "/cylinders", icon: Package, label: "Cylinders" },
-      { to: "/gas-types", icon: Flame, label: "Gas Types" },
-      { to: "/areas", icon: MapPin, label: "Areas" },
-      { to: "/rate-list", icon: Wallet, label: "Rate List" },
-      { to: "/orders", icon: ClipboardList, label: "Orders" },
-    ],
-  },
-  {
-    label: "Transactions",
+    label: "Operations",
     icon: Truck,
+    defaultOpen: true,
     items: [
-      { to: "/transactions", icon: ArrowLeftRight, label: "Bill Cum Challan" },
-      { to: "/ecr", icon: RotateCcw, label: "ECR Returns" },
-      { to: "/challans", icon: Truck, label: "Challans" },
-      { to: "/transfers", icon: Building2, label: "Transfers" },
+      { to: "/transactions", icon: ArrowLeftRight, label: "Bill Cum Challan", description: "Issue cylinders and review invoices." },
+      { to: "/ecr", icon: RotateCcw, label: "ECR Returns", description: "Receive cylinders back and calculate rent." },
+      { to: "/challans", icon: FileText, label: "Challans", description: "Create, print, and convert delivery notes." },
+      { to: "/transfers", icon: Building2, label: "Transfers", description: "Move stock between companies or depots." },
     ],
   },
   {
     label: "Accounting",
     icon: Landmark,
+    defaultOpen: false,
     items: [
-      { to: "/accounting/ledger", icon: BookOpen, label: "Ledger" },
-      { to: "/accounting/cash-voucher", icon: IndianRupee, label: "Cash Voucher" },
-      { to: "/accounting/bank-voucher", icon: Landmark, label: "Bank Voucher" },
-      { to: "/accounting/payment-receipt", icon: CreditCard, label: "Payment Receipt" },
-      { to: "/accounting/debit-note", icon: FileText, label: "Debit Note" },
-      { to: "/accounting/credit-note", icon: Wallet, label: "Credit Note" },
+      { to: "/accounting/payment-receipt", icon: CreditCard, label: "Payment Receipt", description: "Post customer collections against open bills." },
+      { to: "/accounting/ledger", icon: BookOpen, label: "Ledger", description: "Review account movement and voucher history." },
+      { to: "/accounting/cash-voucher", icon: IndianRupee, label: "Cash Voucher", description: "Record cash receipts and payments." },
+      { to: "/accounting/bank-voucher", icon: Landmark, label: "Bank Voucher", description: "Record bank, cheque, UPI, and transfer entries." },
+      { to: "/accounting/debit-note", icon: FileText, label: "Debit Note", description: "Raise debit adjustments for a party." },
+      { to: "/accounting/credit-note", icon: Wallet, label: "Credit Note", description: "Raise credit adjustments for a party." },
+    ],
+  },
+  {
+    label: "Masters",
+    icon: Package,
+    defaultOpen: false,
+    items: [
+      { to: "/customers", icon: Users, label: "Customers", description: "Customer records, command center, and order tabs." },
+      { to: "/cylinders", icon: Package, label: "Cylinders", description: "Cylinder master list and timeline access." },
+      { to: "/gas-types", icon: Flame, label: "Gas Types", description: "Gas catalog and active gas codes." },
+      { to: "/areas", icon: MapPin, label: "Areas", description: "Delivery area codes and names." },
+      { to: "/rate-list", icon: Wallet, label: "Rate List", description: "Rates used by billing and rent calculation." },
+    ],
+  },
+  {
+    label: "Reports",
+    icon: BarChart3,
+    defaultOpen: false,
+    items: [
+      { to: "/reports/operations", icon: Truck, label: "Operations report", description: "Holding, return, and stock movement visibility." },
+      { to: "/reports/sales", icon: BarChart3, label: "Sales report", description: "Sales transactions and customer sales review." },
+      { to: "/reports/accounting", icon: BookOpen, label: "Accounting report", description: "Outstanding, trial balance, and cash book." },
+    ],
+  },
+  {
+    label: "Admin",
+    icon: ShieldAlert,
+    defaultOpen: false,
+    items: [
+      { to: "/users", icon: UserCog, label: "Users", description: "Manage users and role access." },
+      { to: "/settings", icon: Settings, label: "Settings", description: "Company and system configuration." },
     ],
   },
 ];
 
-const mobileTabs = [
-  { to: "/", label: "Home", icon: LayoutDashboard },
-  { to: "/transactions", label: "Bills", icon: ArrowLeftRight },
-  { to: "/ecr", label: "ECR", icon: RotateCcw },
-  { to: "/reports/operations", label: "Reports", icon: BarChart3 },
-  { to: "/accounting/payment-receipt", label: "Pay", icon: CreditCard },
-  { to: "/reports/accounting", label: "Reports", icon: BookOpen },
-  { to: "/settings", label: "Settings", icon: Settings },
-];
+const mobileTabsByRole = {
+  [ROLES.ADMIN]: [
+    { to: "/", label: "Home", icon: LayoutDashboard },
+    { to: "/notifications", label: "Alerts", icon: BellRing },
+    { to: "/reports/operations", label: "Reports", icon: BarChart3 },
+    { to: "/accounting/ledger", label: "Ledger", icon: BookOpen },
+    { to: "/settings", label: "Settings", icon: Settings },
+  ],
+  [ROLES.MANAGER]: [
+    { to: "/operations", label: "Dispatch", icon: Truck },
+    { to: "/transactions", label: "Bills", icon: ArrowLeftRight },
+    { to: "/ecr", label: "ECR", icon: RotateCcw },
+    { to: "/reports/operations", label: "Reports", icon: BarChart3 },
+    { to: "/", label: "Home", icon: LayoutDashboard },
+  ],
+  [ROLES.OPERATOR]: [
+    { to: "/operations", label: "Dispatch", icon: Truck },
+    { to: "/transactions", label: "Issue", icon: ArrowLeftRight },
+    { to: "/ecr", label: "Return", icon: RotateCcw },
+    { to: "/challans", label: "Challan", icon: FileText },
+    { to: "/customers", label: "Customers", icon: Users },
+  ],
+  [ROLES.ACCOUNTANT]: [
+    { to: "/accounting/payment-receipt", label: "Receipt", icon: CreditCard },
+    { to: "/accounting/ledger", label: "Ledger", icon: BookOpen },
+    { to: "/accounting/cash-voucher", label: "Cash", icon: IndianRupee },
+    { to: "/reports/accounting", label: "Reports", icon: BarChart3 },
+    { to: "/", label: "Home", icon: LayoutDashboard },
+  ],
+  [ROLES.VIEWER]: [
+    { to: "/reports/operations", label: "Reports", icon: BarChart3 },
+    { to: "/customers", label: "Customers", icon: Users },
+    { to: "/cylinders", label: "Cylinders", icon: Package },
+    { to: "/", label: "Home", icon: LayoutDashboard },
+  ],
+};
+
+const roleDefaultOpenGroups = {
+  [ROLES.ADMIN]: ["Workspace", "Operations"],
+  [ROLES.MANAGER]: ["Workspace", "Operations"],
+  [ROLES.OPERATOR]: ["Workspace", "Operations"],
+  [ROLES.ACCOUNTANT]: ["Workspace", "Accounting"],
+  [ROLES.VIEWER]: ["Workspace", "Reports"],
+};
 
 const standalonePageMeta = [
-  { path: "/operations", title: "Dispatch workflow", group: "Workflow" },
+  { path: "/operations", title: "Dispatch console", group: "Workspace" },
 ];
+
+function getInitialCollapsed(role) {
+  const openGroups = roleDefaultOpenGroups[role] || ["Workspace"];
+  return Object.fromEntries(navGroups.map((group) => [group.label, !openGroups.includes(group.label)]));
+}
 
 function getPageMeta(pathname, groups) {
   const standalone = standalonePageMeta.find((item) => pathname === item.path || pathname.startsWith(`${item.path}/`));
@@ -147,11 +204,8 @@ function getPageMeta(pathname, groups) {
 export default function AppLayout() {
   const { user, logout } = useAuth();
   const location = useLocation();
-  const [collapsed, setCollapsed] = useState({
-    Masters: false,
-    Transactions: false,
-    Accounting: true,
-  });
+  const role = user?.role || ROLES.VIEWER;
+  const [collapsed, setCollapsed] = useState(() => getInitialCollapsed(role));
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("sidebarCollapsed") === "true");
   const [companyName, setCompanyName] = useState("Patel & Company");
@@ -169,8 +223,15 @@ export default function AppLayout() {
       .map((group) => ({ ...group, items: filterAllowedItems(user?.role, group.items) }))
       .filter((group) => group.items.length > 0);
   }, [user?.role]);
-  const visibleMobileTabs = useMemo(() => filterAllowedItems(user?.role, mobileTabs).slice(0, 5), [user?.role]);
+  const visibleMobileTabs = useMemo(() => {
+    const roleTabs = mobileTabsByRole[role] || mobileTabsByRole[ROLES.VIEWER];
+    return filterAllowedItems(role, roleTabs).slice(0, 5);
+  }, [role]);
   const pageMeta = useMemo(() => getPageMeta(location.pathname, visibleNavGroups), [location.pathname, visibleNavGroups]);
+
+  useEffect(() => {
+    setCollapsed(getInitialCollapsed(role));
+  }, [role]);
 
   useEffect(() => {
     api
@@ -218,36 +279,45 @@ export default function AppLayout() {
 
   const renderNavItem = (item) => {
     const showAlertCount = item.badge === "alerts" && unresolvedAlertsCount > 0;
+    const label = item.description ? `${item.label}. ${item.description}` : item.label;
 
     return (
-      <NavLink
-        key={item.to}
-        to={item.to}
-        end={item.to === "/"}
-        className={({ isActive }) =>
-          `group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
-            isActive
-              ? "bg-amber-400/15 text-amber-100 ring-1 ring-amber-300/25"
-              : "font-semibold text-slate-300 hover:bg-white/10 hover:text-white hover:ring-1 hover:ring-white/10"
-          } ${compactSidebar ? "justify-center px-2" : ""}`
-        }
-        title={compactSidebar ? item.label : undefined}
-      >
-        <item.icon className="h-4 w-4 shrink-0" />
-        {!compactSidebar ? <span className="flex-1 truncate">{item.label}</span> : null}
-        {showAlertCount && !compactSidebar ? (
-          <span className="rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-semibold text-white">
-            {unresolvedAlertsCount > 99 ? "99+" : unresolvedAlertsCount}
-          </span>
-        ) : null}
-        {showAlertCount && compactSidebar ? (
-          <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500" />
-        ) : null}
-      </NavLink>
+      <Tooltip key={item.to}>
+        <TooltipTrigger asChild>
+          <NavLink
+            to={item.to}
+            end={item.to === "/"}
+            aria-label={label}
+            className={({ isActive }) =>
+              `group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
+                isActive
+                  ? "bg-amber-400/15 text-amber-100 ring-1 ring-amber-300/25"
+                  : "font-semibold text-slate-300 hover:bg-white/10 hover:text-white hover:ring-1 hover:ring-white/10"
+              } ${compactSidebar ? "justify-center px-2" : ""}`
+            }
+          >
+            <item.icon className="h-4 w-4 shrink-0" />
+            {!compactSidebar ? <span className="flex-1 truncate">{item.label}</span> : null}
+            {showAlertCount && !compactSidebar ? (
+              <span className="rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-semibold text-white">
+                {unresolvedAlertsCount > 99 ? "99+" : unresolvedAlertsCount}
+              </span>
+            ) : null}
+            {showAlertCount && compactSidebar ? (
+              <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500" />
+            ) : null}
+          </NavLink>
+        </TooltipTrigger>
+        <TooltipContent side="right" className="max-w-64 bg-slate-950 text-white">
+          <div className="text-xs font-semibold">{item.label}</div>
+          {item.description ? <div className="mt-1 text-[11px] leading-4 text-slate-200">{item.description}</div> : null}
+        </TooltipContent>
+      </Tooltip>
     );
   };
 
   return (
+    <TooltipProvider delayDuration={250}>
     <div className="app-shell" data-testid="app-layout">
       <a href="#main-content" className="skip-link">Skip to content</a>
 
@@ -436,5 +506,6 @@ export default function AppLayout() {
         </div>
       </nav>
     </div>
+    </TooltipProvider>
   );
 }

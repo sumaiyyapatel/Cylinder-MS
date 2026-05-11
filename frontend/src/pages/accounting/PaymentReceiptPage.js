@@ -48,7 +48,7 @@ function formatAmount(value) {
 export default function PaymentReceiptPage() {
   const qc = useQueryClient();
   const { hasRole } = useAuth();
-  const canEdit = hasRole("ADMIN", "MANAGER", "ACCOUNTANT");
+  const canPostReceipt = hasRole("ADMIN", "ACCOUNTANT");
   const [form, setForm] = useState(createInitialForm);
   const [showOutstanding, setShowOutstanding] = useState(false);
 
@@ -160,8 +160,16 @@ export default function PaymentReceiptPage() {
     }));
   };
 
-  if (!canEdit) {
-    return <div className="text-sm text-slate-600">You do not have access to payment receipts.</div>;
+  if (!canPostReceipt) {
+    return (
+      <div className="page-shell" data-testid="payment-receipt-page">
+        <EmptyState
+          icon={CreditCard}
+          title="Receipt posting is read-only for this role"
+          description="Review collections from the accounting report or ledger. Only admin and accountant roles can post receipts."
+        />
+      </div>
+    );
   }
 
   const outstandingCount = outstanding.length;
