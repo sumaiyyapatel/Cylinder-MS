@@ -17,6 +17,9 @@ function holdDays(issuedAt, asOf = new Date()) {
 
 router.get('/', authenticate, async (req, res) => {
   try {
+    const role = req.user?.role;
+    const canViewFinancial = ['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(role);
+    const canViewOperations = ['ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'].includes(role);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
@@ -47,22 +50,25 @@ router.get('/', authenticate, async (req, res) => {
       where: { status: { in: ['HOLDING', 'BILLED'] }, issuedAt: { lt: overdueDate } },
     });
 
-    const billsToday = await prisma.bill.aggregate({
-      where: { billDate: { gte: today, lt: tomorrow } },
-      _count: { _all: true },
-      _sum: { totalAmount: true, totalCylinders: true },
-    });
+    const billsToday = canViewFinancial
+      ? await prisma.bill.aggregate({
+          where: { billDate: { gte: today, lt: tomorrow }, isDeleted: false, documentStatus: 'FINALIZED' },
+          _count: { _all: true },
+          _sum: { totalAmount: true, totalCylinders: true },
+        })
+      : { _count: { _all: 0 }, _sum: { totalAmount: 0, totalCylinders: 0 } };
 
-    // Cash collected today (credit amounts from receipt ledger entries)
-    const cashToday = await prisma.ledgerEntry.aggregate({
-      where: {
-        voucherDate: { gte: today, lt: tomorrow },
-        transactionType: { in: ['CASH_RECEIPT', 'BANK_RECEIPT'] },
-      },
-      _sum: { creditAmount: true },
-    });
+    const cashToday = canViewFinancial
+      ? await prisma.ledgerEntry.aggregate({
+          where: {
+            voucherDate: { gte: today, lt: tomorrow },
+            transactionType: { in: ['CASH_RECEIPT', 'BANK_RECEIPT'] },
+          },
+          _sum: { creditAmount: true },
+        })
+      : { _sum: { creditAmount: 0 } };
 
-    const outstandingRows = await getOutstandingReport(prisma);
+    const outstandingRows = canViewFinancial ? await getOutstandingReport(prisma) : [];
     const outstanding = outstandingRows.reduce((sum, row) => sum + Number(row.balance || 0), 0);
     const topOutstanding = outstandingRows
       .slice()
@@ -102,13 +108,15 @@ router.get('/', authenticate, async (req, res) => {
     `;
 
     // Top 5 customers by cylinders held
-    const topCustomers = await prisma.cylinderHolding.groupBy({
-      by: ['customerId'],
-      where: { status: { in: ['HOLDING', 'BILLED'] } },
-      _count: true,
-      orderBy: { _count: { customerId: 'desc' } },
-      take: 5,
-    });
+    const topCustomers = canViewOperations
+      ? await prisma.cylinderHolding.groupBy({
+          by: ['customerId'],
+          where: { status: { in: ['HOLDING', 'BILLED'] } },
+          _count: true,
+          orderBy: { _count: { customerId: 'desc' } },
+          take: 5,
+        })
+      : [];
 
     const topCustomerDetails = await Promise.all(
       topCustomers.map(async (tc) => {
@@ -118,8 +126,9 @@ router.get('/', authenticate, async (req, res) => {
     );
 
     const [recentBills, overdueHoldings, unresolvedAlerts] = await Promise.all([
-      prisma.bill.findMany({
+      canViewFinancial ? prisma.bill.findMany({
         take: 8,
+        where: { isDeleted: false, documentStatus: 'FINALIZED' },
         orderBy: [{ billDate: 'desc' }, { id: 'desc' }],
         select: {
           id: true,
@@ -130,8 +139,8 @@ router.get('/', authenticate, async (req, res) => {
           totalAmount: true,
           customer: { select: { code: true, name: true } },
         },
-      }),
-      prisma.cylinderHolding.findMany({
+      }) : Promise.resolve([]),
+      canViewOperations ? prisma.cylinderHolding.findMany({
         take: 8,
         where: { status: { in: ['HOLDING', 'BILLED'] }, issuedAt: { lt: overdueDate } },
         orderBy: { issuedAt: 'asc' },
@@ -142,11 +151,16 @@ router.get('/', authenticate, async (req, res) => {
           customer: { select: { code: true, name: true } },
           cylinder: { select: { cylinderNumber: true, gasCode: true, ownerCode: true } },
         },
-      }),
+      }) : Promise.resolve([]),
       prisma.alert.count({ where: { isResolved: false } }),
     ]);
 
     res.json({
+      role,
+      permissions: {
+        financialDashboard: canViewFinancial,
+        operationsDashboard: canViewOperations,
+      },
       stats: {
         cylindersOutToday,
         cylindersReturnedToday,

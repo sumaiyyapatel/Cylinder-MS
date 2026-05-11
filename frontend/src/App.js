@@ -1,5 +1,6 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, Link, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { canAccessPath, getDefaultPathForRole, getDefaultReportPath } from "@/lib/iam";
 import LoginPage from "@/pages/auth/LoginPage";
 import DashboardPage from "@/pages/dashboard/DashboardPage";
 import OperationsConsolePage from "@/pages/operations/OperationsConsolePage";
@@ -27,8 +28,26 @@ import SettingsPage from "@/pages/settings/SettingsPage";
 import UsersPage from "@/pages/settings/UsersPage";
 import AppLayout from "@/components/layout/AppLayout";
 
+function AccessDenied() {
+  return (
+    <div className="page-shell">
+      <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
+        <div className="page-eyebrow">Access control</div>
+        <h1 className="mt-2 text-2xl font-bold text-foreground">This role cannot open that page.</h1>
+        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+          The workspace now only shows modules that match the signed-in user role.
+        </p>
+        <Link className="mt-5 inline-flex h-10 items-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground" to="/">
+          Open dashboard
+        </Link>
+      </section>
+    </div>
+  );
+}
+
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[linear-gradient(135deg,#14263f_0%,#1e3a5f_45%,#0f172a_100%)]">
@@ -40,6 +59,7 @@ function ProtectedRoute({ children }) {
     );
   }
   if (!user) return <Navigate to="/login" replace />;
+  if (!canAccessPath(user.role, location.pathname)) return <AccessDenied />;
   return children;
 }
 
@@ -73,25 +93,27 @@ function AppRoutes() {
         <Route path="ecr" element={<EcrPage />} />
         <Route path="challans" element={<ChallansPage />} />
         <Route path="transfers" element={<TransfersPage />} />
-        <Route path="ledger" element={<LedgerPage />} />
-        <Route path="cash-vouchers" element={<CashVoucherPage />} />
-        <Route path="bank-vouchers" element={<BankVoucherPage />} />
-        <Route path="payment-receipts" element={<PaymentReceiptPage />} />
-        <Route path="debit-note" element={<DebitNotePage />} />
-        <Route path="credit-note" element={<CreditNotePage />} />
+        <Route path="accounting/ledger" element={<LedgerPage />} />
         <Route path="accounting/cash-voucher" element={<CashVoucherPage />} />
         <Route path="accounting/bank-voucher" element={<BankVoucherPage />} />
         <Route path="accounting/payment-receipt" element={<PaymentReceiptPage />} />
         <Route path="accounting/debit-note" element={<DebitNotePage />} />
         <Route path="accounting/credit-note" element={<CreditNotePage />} />
         <Route path="notifications" element={<NotificationsPage />} />
-        <Route path="reports" element={<Navigate to="/reports/operations" replace />} />
+        <Route path="reports" element={<Navigate to={getDefaultReportPath(user?.role)} replace />} />
         <Route path="reports/operations" element={<ReportsPage reportCategory="operations" />} />
         <Route path="reports/sales" element={<ReportsPage reportCategory="sales" />} />
         <Route path="reports/accounting" element={<ReportsPage reportCategory="accounting" />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="users" element={<UsersPage />} />
+        <Route path="ledger" element={<Navigate to="/accounting/ledger" replace />} />
+        <Route path="cash-vouchers" element={<Navigate to="/accounting/cash-voucher" replace />} />
+        <Route path="bank-vouchers" element={<Navigate to="/accounting/bank-voucher" replace />} />
+        <Route path="payment-receipts" element={<Navigate to="/accounting/payment-receipt" replace />} />
+        <Route path="debit-note" element={<Navigate to="/accounting/debit-note" replace />} />
+        <Route path="credit-note" element={<Navigate to="/accounting/credit-note" replace />} />
       </Route>
+      <Route path="*" element={<Navigate to={user ? getDefaultPathForRole(user.role) : "/login"} replace />} />
     </Routes>
   );
 }

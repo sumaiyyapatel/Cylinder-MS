@@ -1,10 +1,11 @@
-const { calculateHoldDays, normalizeOwnerCode, isPocOwner, round2 } = require('./businessRules');
-const { calculateRent, getEffectiveRate } = require('./rentalService');
+const { normalizeOwnerCode, round2 } = require('./businessRules');
+const { computeCylinderRental } = require('./rentalEngineService');
 const { postLedgerEntries } = require('./ledgerPostingService');
 const { updateCylinderStatus } = require('./cylinderStatusService');
 const { generateEcrNumber } = require('./numberingService');
 const { createAuditLog } = require('./auditService');
 const { MOVEMENT_TYPES, recordCylinderMovement } = require('./cylinderMovementService');
+const { emitDomainEvent } = require('./domainEventService');
 
 /**
  * Create a holding record for a cylinder issue.
@@ -35,15 +36,13 @@ async function calculateHoldingRent(tx, { holdingId, returnDate = new Date() } =
   if (!holding) throw new Error('Holding not found');
 
   const issueDate = holding.issuedAt;
-  const holdDays = calculateHoldDays(issueDate, returnDate);
-  let rentAmount = 0;
-
-  const effectiveOwner = normalizeOwnerCode(holding.cylinder?.ownerCode);
-  if (!isPocOwner(effectiveOwner)) {
-    const rateConfig = await getEffectiveRate(tx, { customerId: holding.customerId, gasCode: holding.cylinder?.gasCode, ownerCode: effectiveOwner });
-    rentAmount = calculateRent(holdDays, rateConfig);
-  }
-  rentAmount = round2(rentAmount);
+  const { holdDays, rentAmount } = await computeCylinderRental(tx, {
+    customerId: holding.customerId,
+    gasCode: holding.cylinder?.gasCode,
+    ownerCode: holding.cylinder?.ownerCode,
+    issuedAt: issueDate,
+    returnedAt: returnDate,
+  });
   return { holdDays, rentAmount };
 }
 
@@ -215,19 +214,19 @@ async function returnCylinder(tx, {
   const issueDate = holding.issuedAt;
   if (returnDate < issueDate) throw new Error('Return date cannot be before issue date');
 
-  const holdDays = calculateHoldDays(issueDate, returnDate);
-  const effectiveOwner = normalizeOwnerCode(cylinderOwner || holding.cylinder?.ownerCode);
-
-  let rentAmount = 0;
-  if (!isPocOwner(effectiveOwner)) {
-    const rateConfig = await getEffectiveRate(tx, { customerId: holding.customerId, gasCode: gasCode || holding.cylinder?.gasCode, ownerCode: effectiveOwner });
-    rentAmount = calculateRent(holdDays, rateConfig);
-  }
-  rentAmount = round2(rentAmount);
+  const rental = await computeCylinderRental(tx, {
+    customerId: holding.customerId,
+    gasCode: gasCode || holding.cylinder?.gasCode,
+    ownerCode: cylinderOwner || holding.cylinder?.ownerCode,
+    issuedAt: issueDate,
+    returnedAt: returnDate,
+  });
+  const { holdDays, rentAmount } = rental;
+  const effectiveOwner = rental.ownerCode;
 
   await tx.cylinderHolding.update({ where: { id: holdingId }, data: { returnedAt: returnDate, holdDays, rentAmount, status: 'RETURNED' } });
 
-  await updateCylinderStatus(tx, holding.cylinderId, 'IN_STOCK');
+  await updateCylinderStatus(tx, holding.cylinderId, 'RETURNED');
 
   const ecrNumber = await generateEcrNumber(tx, returnDate);
   const createdEcr = await tx.ecrRecord.create({
@@ -247,6 +246,8 @@ async function returnCylinder(tx, {
       vehicleNumber: vehicleNumber || null,
       operatorId: operatorId || null,
       quantityCum: quantityCum == null ? null : round2(quantityCum),
+      documentStatus: 'FINALIZED',
+      finalizedAt: new Date(),
     },
   });
   await recordCylinderMovement(tx, {
@@ -259,7 +260,7 @@ async function returnCylinder(tx, {
     movementDate: returnDate,
     quantityCum,
     statusBefore: holding.cylinder?.status,
-    statusAfter: 'IN_STOCK',
+    statusAfter: 'RETURNED',
     referenceType: 'ECR',
     referenceNumber: ecrNumber,
     operatorId: operatorId || performedBy || null,
@@ -281,11 +282,24 @@ async function returnCylinder(tx, {
     entityId: String(createdEcr.id),
     oldValue: { cylinderStatus: holding.cylinder?.status, holdingStatus: holding.status },
     newValue: {
-      cylinderStatus: 'IN_STOCK',
+      cylinderStatus: 'RETURNED',
       holdingStatus: 'RETURNED',
       cylinderNumber: holding.cylinder?.cylinderNumber,
       ecrNumber,
     },
+  });
+  await emitDomainEvent(tx, {
+    eventType: 'CylinderReturned',
+    aggregateType: 'ecr',
+    aggregateId: createdEcr.id,
+    payload: {
+      ecrNumber,
+      holdingId,
+      customerId: holding.customerId,
+      cylinderNumber: holding.cylinder?.cylinderNumber,
+      rentAmount,
+    },
+    operatorId: operatorId || performedBy || null,
   });
 
   return createdEcr;

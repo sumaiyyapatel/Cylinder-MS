@@ -6,6 +6,7 @@ const { updateCylinderStatus, assertNoActiveHolding } = require('./cylinderStatu
 const { postLedgerEntries } = require('./ledgerPostingService');
 const { buildIssueEntries } = require('./ledgerValidationService');
 const { MOVEMENT_TYPES, recordCylinderMovement } = require('./cylinderMovementService');
+const { emitDomainEvent } = require('./domainEventService');
 const {
   TRACKING_MODES,
   buildQuantityMovementPayload,
@@ -57,6 +58,8 @@ async function createChallan(tx, opts = {}) {
       transactionType,
       status: linkedBillId ? 'BILLED' : 'OPEN',
       linkedBillId,
+      documentStatus: 'FINALIZED',
+      finalizedAt: new Date(),
       operatorId,
     },
   });
@@ -89,7 +92,7 @@ async function createChallan(tx, opts = {}) {
 
     for (const dbCyl of dbCylinders) {
       if (holdingCylinderIds.has(dbCyl.id)) blockedWithCustomer.push(dbCyl.cylinderNumber);
-      if (dbCyl.status !== 'IN_STOCK') blockedNotInStock.push(dbCyl.cylinderNumber);
+      if (!['IN_STOCK', 'REFILLED'].includes(dbCyl.status)) blockedNotInStock.push(dbCyl.cylinderNumber);
       if (normalizeOwnerCode(dbCyl.ownerCode) !== expectedOwner) {
         blockedOwnerMismatch.push({ cylinderNumber: dbCyl.cylinderNumber, actualOwner: dbCyl.ownerCode });
       }
@@ -113,7 +116,7 @@ async function createChallan(tx, opts = {}) {
       throw new AppError(409, `Cannot issue cylinder(s) already on active holding: ${[...new Set(blockedWithCustomer)].join(', ')}`);
     }
     if (blockedNotInStock.length) {
-      throw new AppError(400, `Cylinder(s) must be IN_STOCK before issue: ${[...new Set(blockedNotInStock)].join(', ')}`);
+      throw new AppError(400, `Cylinder(s) must be IN_STOCK or REFILLED before issue: ${[...new Set(blockedNotInStock)].join(', ')}`);
     }
     if (blockedOwnerMismatch.length) {
       const first = blockedOwnerMismatch[0];
@@ -184,6 +187,13 @@ async function createChallan(tx, opts = {}) {
     oldValue: null,
     newValue: { challanNumber: created.challanNumber, customerId: created.customerId },
   });
+  await emitDomainEvent(tx, {
+    eventType: 'ChallanFinalized',
+    aggregateType: 'challan',
+    aggregateId: created.id,
+    payload: { challanNumber: created.challanNumber, customerId: created.customerId },
+    operatorId,
+  });
 
   return created;
 }
@@ -208,6 +218,9 @@ async function convertChallanToBill(tx, challanId, operatorId = null) {
   });
 
   if (!challan) throw new AppError(404, 'Challan not found');
+  if (challan.documentStatus === 'CANCELLED' || challan.documentStatus === 'REVERSED' || challan.isDeleted) {
+    throw new AppError(409, 'Challan is not active');
+  }
   if (challan.status === 'BILLED') throw new AppError(409, 'Challan is already converted to a bill');
   if (challan.linkedBillId) throw new AppError(409, 'Challan already linked to a bill');
   const isQuantityOnly = !challan.holdings.length && Number(challan.quantityCum || 0) > 0;
@@ -265,6 +278,8 @@ async function convertChallanToBill(tx, challanId, operatorId = null) {
       taxableAmount: round2(tax.taxableAmount),
       gstAmount: round2(tax.gstAmount),
       totalAmount: round2(tax.totalAmount),
+      documentStatus: 'FINALIZED',
+      finalizedAt: new Date(),
       operatorId,
     },
   });
@@ -382,6 +397,13 @@ async function convertChallanToBill(tx, challanId, operatorId = null) {
     entityId: String(challanId),
     oldValue: { status: 'OPEN', linkedBillId: null },
     newValue: { status: 'BILLED', linkedBillId: bill.id, billNumber },
+  });
+  await emitDomainEvent(tx, {
+    eventType: 'BillFinalized',
+    aggregateType: 'bill',
+    aggregateId: bill.id,
+    payload: { billNumber, sourceChallanId: challan.id, challanNumber: challan.challanNumber },
+    operatorId,
   });
 
   return { bill, challanNumber: challan.challanNumber, billNumber };

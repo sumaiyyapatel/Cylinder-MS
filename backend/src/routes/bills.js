@@ -18,14 +18,14 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
   });
 }));
 
-router.get('/:id/pdf', authenticate, asyncHandler(async (req, res) => {
+router.get('/:id/pdf', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR', 'ACCOUNTANT'), asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) throw new AppError(400, 'Invalid bill id');
   const sent = await streamBillPdf(res, id, { userId: req.user.sub });
   if (!sent) throw new AppError(404, 'Bill not found');
 }));
 
-router.post('/:id/route-trace', authenticate, asyncHandler(async (req, res) => {
+router.post('/:id/route-trace', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) throw new AppError(400, 'Invalid bill id');
 

@@ -44,10 +44,10 @@ async function buildBillResponse(tx, bill, { salesBookEntry: salesBookEntryIn, c
   };
 }
 
-router.get('/', authenticate, asyncHandler(async (req, res) => {
+router.get('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR', 'ACCOUNTANT'), asyncHandler(async (req, res) => {
   const { customerId, gasCode, dateFrom, dateTo, page = 1, limit = 50 } = req.query;
 
-  const where = {};
+  const where = { isDeleted: false };
   if (customerId && !isNaN(parseInt(customerId, 10))) where.customerId = parseInt(customerId, 10);
   if (gasCode) where.gasCode = gasCode;
   Object.assign(where, parseDateRange(dateFrom, dateTo, 'billDate'));
@@ -152,7 +152,7 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
   })();
 }));
 
-router.patch('/:id/whatsapp-sent', authenticate, asyncHandler(async (req, res) => {
+router.patch('/:id/whatsapp-sent', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) throw new AppError(400, 'Invalid bill id');
 
@@ -164,7 +164,7 @@ router.patch('/:id/whatsapp-sent', authenticate, asyncHandler(async (req, res) =
   res.json({ message: 'WhatsApp marked sent', bill });
 }));
 
-router.get('/next-bill-number', authenticate, asyncHandler(async (req, res) => {
+router.get('/next-bill-number', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
   const { ownerCode = 'COC' } = req.query;
   const billNumber = await generateBillNumber(prisma, ownerCode);
   res.json({ billNumber });

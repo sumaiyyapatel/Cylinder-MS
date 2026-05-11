@@ -25,6 +25,75 @@ const {
 
 const router = express.Router();
 
+const REPORT_ROLES = {
+  operations: ['ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'],
+  sales: ['ADMIN', 'MANAGER', 'ACCOUNTANT'],
+  accounting: ['ADMIN', 'MANAGER', 'ACCOUNTANT'],
+};
+
+const REPORT_TYPE_CATEGORY = {
+  holding: 'operations',
+  daily: 'operations',
+  'cylinder-rotation': 'operations',
+  reconciliation: 'operations',
+  'holding-rents': 'operations',
+  'orphaned-holdings': 'operations',
+  'sale-txn': 'sales',
+  'sales-summary': 'sales',
+  'customer-stmt': 'sales',
+  'party-rental': 'sales',
+  'sale-return': 'sales',
+  'sale-return-summary': 'sales',
+  outstanding: 'accounting',
+  'trial-balance': 'accounting',
+  'cash-book': 'accounting',
+  'bank-book': 'accounting',
+  'journal-book': 'accounting',
+  'age-analysis-ledger': 'accounting',
+  'age-analysis-outstanding': 'accounting',
+};
+
+const REPORT_PATH_CATEGORY = [
+  ['/holding-statement', 'operations'],
+  ['/daily-report', 'operations'],
+  ['/cylinder-rotation', 'operations'],
+  ['/reconciliation', 'operations'],
+  ['/issue-without-purchase', 'operations'],
+  ['/sale-transactions', 'sales'],
+  ['/sales-summary', 'sales'],
+  ['/customer-statement', 'sales'],
+  ['/party-rental', 'sales'],
+  ['/sale-return', 'sales'],
+  ['/sale-return-summary', 'sales'],
+  ['/outstanding', 'accounting'],
+  ['/trial-balance', 'accounting'],
+  ['/cash-book', 'accounting'],
+  ['/bank-book', 'accounting'],
+  ['/journal-book', 'accounting'],
+  ['/age-analysis-ledger', 'accounting'],
+  ['/age-analysis-outstanding', 'accounting'],
+];
+
+function canOpenReport(role, category) {
+  return Boolean(role && REPORT_ROLES[category]?.includes(role));
+}
+
+function getReportCategory(req) {
+  if (req.path === '/export') {
+    return REPORT_TYPE_CATEGORY[String(req.query.type || '')] || 'operations';
+  }
+  const match = REPORT_PATH_CATEGORY.find(([prefix]) => req.path === prefix || req.path.startsWith(`${prefix}/`));
+  return match?.[1] || 'operations';
+}
+
+router.use(authenticate, (req, res, next) => {
+  const category = getReportCategory(req);
+  if (!canOpenReport(req.user?.role, category)) {
+    return res.status(403).json({ error: 'Insufficient report access' });
+  }
+  next();
+});
+
 function extractCount(countValue) {
   if (typeof countValue === 'number') return countValue;
   if (countValue && typeof countValue._all === 'number') return countValue._all;

@@ -33,9 +33,38 @@ enum CylinderStatus {
   IN_STOCK
   WITH_CUSTOMER
   IN_TRANSIT
+  RETURNED
+  REFILLED
   DAMAGED
   UNDER_TEST
   CONDEMNED
+}
+
+enum DocumentStatus {
+  DRAFT
+  FINALIZED
+  CANCELLED
+  REVERSED
+}
+
+enum DispatchStatus {
+  PLANNED
+  ASSIGNED
+  LOADED
+  OUT_FOR_DELIVERY
+  COMPLETED
+  CANCELLED
+}
+
+enum InventoryDirection {
+  IN
+  OUT
+  ADJUSTMENT
+}
+
+enum InventoryTrackingMode {
+  SERIALIZED
+  QUANTITY
 }
 
 enum OrderStatus {
@@ -113,6 +142,7 @@ model Customer {
   account      Account?
   ledgerEntries LedgerEntry[]
   cylinderMovements CylinderMovement[]
+  dispatchItems DispatchItem[]
 
   @@map("customers")
 }
@@ -137,6 +167,7 @@ model Cylinder {
   transactions Transaction[]
   alerts       Alert[]           @relation("CylinderAlerts")
   movements    CylinderMovement[]
+  stockLedger  StockLedger[]
 
   @@map("cylinders")
 }
@@ -150,6 +181,7 @@ model GasType {
   hsnCode      String?  @map("hsn_code")
   gstRate      Decimal? @map("gst_rate")
   itemCode     String?  @map("item_code")
+  trackingMode InventoryTrackingMode @default(SERIALIZED) @map("tracking_mode")
   isActive     Boolean  @default(true) @map("is_active")
 
   cylinders Cylinder[]
@@ -275,6 +307,13 @@ model Bill {
   totalAmount     Decimal? @map("total_amount")
   whatsappSent    Boolean  @default(false) @map("whatsapp_sent")
   pdfPath         String?  @map("pdf_path")
+  documentStatus  DocumentStatus @default(FINALIZED) @map("document_status")
+  finalizedAt     DateTime? @map("finalized_at")
+  cancelledAt     DateTime? @map("cancelled_at")
+  reversedAt      DateTime? @map("reversed_at")
+  isDeleted       Boolean  @default(false) @map("is_deleted")
+  deletedAt       DateTime? @map("deleted_at")
+  deletedBy       Int?     @map("deleted_by")
   operatorId      Int?     @map("operator_id")
   createdAt       DateTime @default(now()) @map("created_at")
 
@@ -284,6 +323,8 @@ model Bill {
   payments Payment[]
   routeTraces DeliveryRouteTrace[]
 
+  @@index([documentStatus])
+  @@index([isDeleted])
   @@index([customerId, billDate])
   @@index([billDate])
   @@map("bills")
@@ -304,6 +345,13 @@ model EcrRecord {
   challanNumber  String?   @map("challan_number")
   challanDate    DateTime? @map("challan_date")
   vehicleNumber  String?   @map("vehicle_number")
+  documentStatus DocumentStatus @default(FINALIZED) @map("document_status")
+  finalizedAt    DateTime? @map("finalized_at")
+  cancelledAt    DateTime? @map("cancelled_at")
+  reversedAt     DateTime? @map("reversed_at")
+  isDeleted      Boolean  @default(false) @map("is_deleted")
+  deletedAt      DateTime? @map("deleted_at")
+  deletedBy      Int?     @map("deleted_by")
   operatorId     Int?      @map("operator_id")
   quantityCum    Decimal?  @map("quantity_cum")
   createdAt      DateTime  @default(now()) @map("created_at")
@@ -311,6 +359,8 @@ model EcrRecord {
   customer Customer @relation(fields: [customerId], references: [id])
   payments Payment[]
 
+  @@index([documentStatus])
+  @@index([isDeleted])
   @@map("ecr_records")
 }
 
@@ -361,6 +411,7 @@ model CylinderMovement {
   cylinder Cylinder? @relation(fields: [cylinderId], references: [id])
   customer Customer? @relation(fields: [customerId], references: [id])
   holding  CylinderHolding? @relation(fields: [holdingId], references: [id])
+  stockLedger StockLedger?
 
   @@index([cylinderId, movementDate])
   @@index([customerId, movementDate])
@@ -383,6 +434,13 @@ model Challan {
   transactionType String?  @map("transaction_type")
   status          String   @default("OPEN")
   linkedBillId    Int?     @map("linked_bill_id")
+  documentStatus  DocumentStatus @default(FINALIZED) @map("document_status")
+  finalizedAt     DateTime? @map("finalized_at")
+  cancelledAt     DateTime? @map("cancelled_at")
+  reversedAt      DateTime? @map("reversed_at")
+  isDeleted       Boolean  @default(false) @map("is_deleted")
+  deletedAt       DateTime? @map("deleted_at")
+  deletedBy       Int?     @map("deleted_by")
   operatorId      Int?     @map("operator_id")
   createdAt       DateTime @default(now()) @map("created_at")
 
@@ -394,6 +452,8 @@ model Challan {
   @@index([linkedBillId])
   @@index([customerId, challanDate])
   @@index([status])
+  @@index([documentStatus])
+  @@index([isDeleted])
   @@map("challans")
 }
 
@@ -462,6 +522,13 @@ model Payment {
   paymentMode   String   @map("payment_mode")
   amount        Decimal
   reference     String?
+  documentStatus DocumentStatus @default(FINALIZED) @map("document_status")
+  finalizedAt   DateTime? @map("finalized_at")
+  cancelledAt   DateTime? @map("cancelled_at")
+  reversedAt    DateTime? @map("reversed_at")
+  isDeleted     Boolean  @default(false) @map("is_deleted")
+  deletedAt     DateTime? @map("deleted_at")
+  deletedBy     Int?     @map("deleted_by")
   operatorId    Int?     @map("operator_id")
   createdAt     DateTime @default(now()) @map("created_at")
 
@@ -472,6 +539,8 @@ model Payment {
   @@index([customerId, voucherDate])
   @@index([billId])
   @@index([ecrId])
+  @@index([documentStatus])
+  @@index([isDeleted])
   @@map("payments")
 }
 
@@ -488,6 +557,159 @@ model CustomerBalance {
 
   @@index([customerId])
   @@map("customer_balances")
+}
+
+model Warehouse {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  name        String
+  branchCode  String?  @map("branch_code")
+  isDefault   Boolean  @default(false) @map("is_default")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  stockLedger StockLedger[]
+  balances    InventoryBalance[]
+  closings    DailyClosingStock[]
+
+  @@index([branchCode])
+  @@map("warehouses")
+}
+
+model StockLedger {
+  id              Int                @id @default(autoincrement())
+  movementId      Int?               @unique @map("movement_id")
+  warehouseId     Int                @map("warehouse_id")
+  gasCode         String?            @map("gas_code")
+  ownerCode       String?            @map("owner_code")
+  cylinderId      Int?               @map("cylinder_id")
+  direction       InventoryDirection
+  movementDate    DateTime           @map("movement_date")
+  quantityCyl     Int                @default(0) @map("quantity_cyl")
+  quantityCum     Decimal            @default(0) @map("quantity_cum")
+  balanceCyl      Int                @default(0) @map("balance_cyl")
+  balanceCum      Decimal            @default(0) @map("balance_cum")
+  referenceType   String?            @map("reference_type")
+  referenceNumber String?            @map("reference_number")
+  operatorId      Int?               @map("operator_id")
+  createdAt       DateTime           @default(now()) @map("created_at")
+
+  movement  CylinderMovement? @relation(fields: [movementId], references: [id])
+  warehouse Warehouse         @relation(fields: [warehouseId], references: [id])
+  cylinder  Cylinder?         @relation(fields: [cylinderId], references: [id])
+
+  @@index([warehouseId, gasCode, ownerCode, movementDate])
+  @@index([cylinderId, movementDate])
+  @@index([referenceType, referenceNumber])
+  @@map("stock_ledger")
+}
+
+model InventoryBalance {
+  id          Int      @id @default(autoincrement())
+  warehouseId Int      @map("warehouse_id")
+  gasCode     String?  @map("gas_code")
+  ownerCode   String?  @map("owner_code")
+  quantityCyl Int      @default(0) @map("quantity_cyl")
+  quantityCum Decimal  @default(0) @map("quantity_cum")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+
+  @@unique([warehouseId, gasCode, ownerCode], map: "inventory_balance_key")
+  @@index([gasCode, ownerCode])
+  @@map("inventory_balance")
+}
+
+model DailyClosingStock {
+  id          Int      @id @default(autoincrement())
+  closingDate DateTime @map("closing_date")
+  warehouseId Int      @map("warehouse_id")
+  gasCode     String?  @map("gas_code")
+  ownerCode   String?  @map("owner_code")
+  quantityCyl Int      @default(0) @map("quantity_cyl")
+  quantityCum Decimal  @default(0) @map("quantity_cum")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+
+  @@unique([closingDate, warehouseId, gasCode, ownerCode], map: "daily_closing_stock_key")
+  @@index([warehouseId, closingDate])
+  @@map("daily_closing_stock")
+}
+
+model DomainEvent {
+  id            Int       @id @default(autoincrement())
+  eventType     String    @map("event_type")
+  aggregateType String    @map("aggregate_type")
+  aggregateId   String    @map("aggregate_id")
+  payload       Json
+  operatorId    Int?      @map("operator_id")
+  occurredAt    DateTime  @default(now()) @map("occurred_at")
+  processedAt   DateTime? @map("processed_at")
+
+  @@index([eventType, occurredAt])
+  @@index([aggregateType, aggregateId])
+  @@map("domain_events")
+}
+
+model DispatchRun {
+  id            Int            @id @default(autoincrement())
+  dispatchNumber String         @unique @map("dispatch_number")
+  dispatchDate  DateTime       @map("dispatch_date")
+  status        DispatchStatus @default(PLANNED)
+  driverName    String?        @map("driver_name")
+  driverPhone   String?        @map("driver_phone")
+  vehicleNumber String?        @map("vehicle_number")
+  areaCode      String?        @map("area_code")
+  notes         String?
+  startedAt     DateTime?      @map("started_at")
+  completedAt   DateTime?      @map("completed_at")
+  operatorId    Int?           @map("operator_id")
+  createdAt     DateTime       @default(now()) @map("created_at")
+
+  items       DispatchItem[]
+  routeTraces DispatchRouteTrace[]
+
+  @@index([dispatchDate, status])
+  @@index([vehicleNumber])
+  @@map("dispatch_runs")
+}
+
+model DispatchItem {
+  id          Int            @id @default(autoincrement())
+  dispatchId  Int            @map("dispatch_id")
+  sourceType  String         @map("source_type")
+  sourceId    Int            @map("source_id")
+  refNumber   String         @map("ref_number")
+  customerId  Int?           @map("customer_id")
+  sequence    Int            @default(0)
+  status      DispatchStatus @default(PLANNED)
+  deliveredAt DateTime?      @map("delivered_at")
+  returnedAt  DateTime?      @map("returned_at")
+  notes       String?
+  createdAt   DateTime       @default(now()) @map("created_at")
+
+  dispatch DispatchRun @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  customer Customer?   @relation(fields: [customerId], references: [id])
+
+  @@index([dispatchId, sequence])
+  @@index([sourceType, sourceId])
+  @@index([customerId])
+  @@index([status])
+  @@map("dispatch_items")
+}
+
+model DispatchRouteTrace {
+  id         Int      @id @default(autoincrement())
+  dispatchId Int      @map("dispatch_id")
+  operatorId Int?     @map("operator_id")
+  route      Json
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  dispatch DispatchRun @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+
+  @@index([dispatchId])
+  @@map("dispatch_route_traces")
 }
 
 model DeliveryRouteTrace {

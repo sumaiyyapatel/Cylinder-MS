@@ -19,7 +19,7 @@ router.get('/', authenticate, asyncHandler(async (req, res) => {
   const parsedLimit = parseInt(limit, 10);
   const safePage = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
   const safeLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 50;
-  const where = {};
+  const where = { isDeleted: false };
   if (customerId) where.customerId = parseInt(customerId, 10);
 
   const [challans, total] = await Promise.all([

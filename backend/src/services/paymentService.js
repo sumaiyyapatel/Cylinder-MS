@@ -4,6 +4,7 @@ const { generateLedgerVoucherNumber } = require('./numberingService');
 const { buildReceiptEntries } = require('./ledgerValidationService');
 const { postLedgerEntries } = require('./ledgerPostingService');
 const { createAuditLog } = require('./auditService');
+const { emitDomainEvent } = require('./domainEventService');
 
 const VALID_PAYMENT_MODES = ['CASH', 'CHEQUE', 'BANK_TRANSFER', 'UPI'];
 
@@ -52,10 +53,13 @@ async function getBillOrThrow(tx, billId, customerId) {
       billNumber: true,
       billDate: true,
       totalAmount: true,
+      documentStatus: true,
+      isDeleted: true,
     },
   });
 
   if (!bill) throw new AppError(404, 'Bill not found');
+  if (bill.isDeleted || bill.documentStatus !== 'FINALIZED') throw new AppError(409, 'Bill is not open for payment');
   if (bill.customerId !== customerId) {
     throw new AppError(409, 'Bill does not belong to the selected customer');
   }
@@ -74,10 +78,13 @@ async function getEcrOrThrow(tx, ecrId, customerId) {
       ecrNumber: true,
       ecrDate: true,
       rentAmount: true,
+      documentStatus: true,
+      isDeleted: true,
     },
   });
 
   if (!ecr) throw new AppError(404, 'ECR not found');
+  if (ecr.isDeleted || ecr.documentStatus !== 'FINALIZED') throw new AppError(409, 'ECR is not open for payment');
   if (ecr.customerId !== customerId) {
     throw new AppError(409, 'ECR does not belong to the selected customer');
   }
@@ -218,6 +225,20 @@ async function recordPayment(tx, {
       reference: reference || null,
     },
   });
+  await emitDomainEvent(tx, {
+    eventType: 'PaymentReceived',
+    aggregateType: 'payment',
+    aggregateId: payment.id,
+    payload: {
+      voucherNumber,
+      customerId,
+      billId: bill?.id || null,
+      ecrId: ecr?.id || null,
+      amount: normalizedAmount,
+      paymentMode: effectivePaymentMode,
+    },
+    operatorId,
+  });
 
   return {
     ...payment,
@@ -299,7 +320,7 @@ async function getCustomerOutstanding(tx, customerId) {
 
   const [bills, ecrs] = await Promise.all([
     tx.bill.findMany({
-      where: { customerId },
+      where: { customerId, isDeleted: false, documentStatus: 'FINALIZED' },
       select: {
         id: true,
         billNumber: true,
@@ -309,7 +330,7 @@ async function getCustomerOutstanding(tx, customerId) {
       orderBy: { billDate: 'asc' },
     }),
     tx.ecrRecord.findMany({
-      where: { customerId, rentAmount: { gt: 0 } },
+      where: { customerId, rentAmount: { gt: 0 }, isDeleted: false, documentStatus: 'FINALIZED' },
       select: {
         id: true,
         ecrNumber: true,
@@ -331,6 +352,8 @@ async function getCustomerOutstanding(tx, customerId) {
     FROM payments
     WHERE customer_id = ${customerId}
       AND (bill_id IS NOT NULL OR ecr_id IS NOT NULL)
+      AND is_deleted = false
+      AND document_status = 'FINALIZED'
     GROUP BY bill_id, ecr_id
   `;
 

@@ -25,7 +25,7 @@ const { calculateRent, getEffectiveRate } = require('../services/rentalService')
 // GET /api/ecr
 router.get('/', authenticate, asyncHandler(async (req, res) => {
   const { customerId, dateFrom, dateTo, page = 1, limit = 50 } = req.query;
-  const where = {};
+  const where = { isDeleted: false };
   if (customerId) where.customerId = parseInt(customerId, 10);
   Object.assign(where, parseDateRange(dateFrom, dateTo, 'ecrDate'));
 

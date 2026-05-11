@@ -1,9 +1,19 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const { authenticate } = require('../lib/auth');
+const { authenticate, authorize } = require('../lib/auth');
 const asyncHandler = require('../middleware/asyncHandler');
 const { calculateHoldDays } = require('../services/businessRules');
 const { getOutstandingReport } = require('../services/reportQueryService');
+const {
+  createDispatchRun,
+  assignDispatchRun,
+  startDispatchRun,
+  completeDispatchItem,
+  completeDispatchRun,
+  recordDispatchRouteTrace,
+  getDispatchBoard,
+  getDispatchReconciliation,
+} = require('../services/dispatchService');
 
 const router = express.Router();
 
@@ -36,7 +46,8 @@ function mapHolding(holding, thresholdDays, asOf = new Date()) {
   };
 }
 
-router.get('/console', authenticate, asyncHandler(async (req, res) => {
+router.get('/console', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
+  const canViewPayments = ['ADMIN', 'MANAGER'].includes(req.user?.role);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today);
@@ -46,8 +57,7 @@ router.get('/console', authenticate, asyncHandler(async (req, res) => {
   overdueBefore.setDate(overdueBefore.getDate() - thresholdDays);
 
   const [
-    orders,
-    openChallans,
+    dispatchBoard,
     activeHoldings,
     overdueHoldings,
     todayIssues,
@@ -60,18 +70,7 @@ router.get('/console', authenticate, asyncHandler(async (req, res) => {
     activeOrdersCount,
     openChallansCount,
   ] = await Promise.all([
-    prisma.order.findMany({
-      where: { status: 'ACTIVE' },
-      take: 8,
-      orderBy: [{ orderDate: 'asc' }, { id: 'asc' }],
-      include: { customer: { select: { id: true, code: true, name: true, areaCode: true } } },
-    }),
-    prisma.challan.findMany({
-      where: { status: 'OPEN' },
-      take: 8,
-      orderBy: [{ challanDate: 'asc' }, { id: 'asc' }],
-      include: { customer: { select: { id: true, code: true, name: true, areaCode: true } } },
-    }),
+    getDispatchBoard(prisma),
     prisma.cylinderHolding.findMany({
       where: { status: { in: ['HOLDING', 'BILLED'] } },
       take: 12,
@@ -98,37 +97,25 @@ router.get('/console', authenticate, asyncHandler(async (req, res) => {
     prisma.ecrRecord.count({ where: { ecrDate: { gte: today, lt: tomorrow } } }),
     prisma.alert.count({ where: { isResolved: false } }),
     prisma.cylinder.groupBy({ by: ['status'], _count: true }),
-    getOutstandingReport(prisma),
+    canViewPayments ? getOutstandingReport(prisma) : Promise.resolve([]),
     prisma.cylinderHolding.count({ where: { status: { in: ['HOLDING', 'BILLED'] } } }),
     prisma.cylinderHolding.count({ where: { status: { in: ['HOLDING', 'BILLED'] }, issuedAt: { lt: overdueBefore } } }),
     prisma.order.count({ where: { status: 'ACTIVE' } }),
-    prisma.challan.count({ where: { status: 'OPEN' } }),
+    prisma.challan.count({ where: { status: 'OPEN', isDeleted: false } }),
   ]);
 
-  const dispatchQueue = [
-    ...orders.map((order) => ({
-      type: 'ORDER',
-      id: order.id,
-      refNumber: order.orderNumber,
-      date: order.orderDate,
-      customer: order.customer,
-      gasCode: order.gasCode,
-      ownerCode: order.ownerCode,
-      quantityCyl: order.quantityCyl,
-      status: order.status,
-    })),
-    ...openChallans.map((challan) => ({
-      type: 'CHALLAN',
-      id: challan.id,
-      refNumber: challan.challanNumber,
-      date: challan.challanDate,
-      customer: challan.customer,
-      gasCode: challan.gasCode,
-      ownerCode: challan.cylinderOwner,
-      quantityCyl: challan.cylindersCount,
-      status: challan.status,
-    })),
-  ].sort((left, right) => new Date(left.date).getTime() - new Date(right.date).getTime()).slice(0, 12);
+  const dispatchQueue = dispatchBoard.unassignedQueue.slice(0, 12).map((item) => ({
+    type: item.sourceType,
+    id: item.sourceId,
+    refNumber: item.refNumber,
+    date: item.date,
+    customer: item.customer,
+    gasCode: item.gasCode,
+    ownerCode: item.ownerCode,
+    quantityCyl: item.quantityCyl,
+    quantityCum: item.quantityCum,
+    status: item.status,
+  }));
 
   const pendingPayments = outstandingRows.slice(0, 8).map((row) => ({
     customerId: row.customerId,
@@ -151,11 +138,52 @@ router.get('/console', authenticate, asyncHandler(async (req, res) => {
       outstandingAmount: outstandingRows.reduce((sum, item) => sum + asNumber(item.balance), 0),
     },
     dispatchQueue,
+    activeDispatchRuns: dispatchBoard.activeRuns,
     returnsQueue: activeHoldings.map((holding) => mapHolding(holding, thresholdDays)),
     overdueCylinders: overdueHoldings.map((holding) => mapHolding(holding, thresholdDays)),
     pendingPayments,
     stockHealth: statusSummary.map((item) => ({ status: item.status, count: item._count })),
   });
+}));
+
+router.get('/dispatch-board', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
+  const board = await getDispatchBoard(prisma);
+  res.json(board);
+}));
+
+router.post('/dispatch-runs', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
+  const run = await createDispatchRun(prisma, req.body, { operatorId: req.user.sub });
+  res.status(201).json({ message: 'Dispatch planned', run });
+}));
+
+router.patch('/dispatch-runs/:id/assign', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
+  const run = await assignDispatchRun(prisma, req.params.id, req.body, { operatorId: req.user.sub });
+  res.json({ message: 'Dispatch assigned', run });
+}));
+
+router.patch('/dispatch-runs/:id/start', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
+  const run = await startDispatchRun(prisma, req.params.id, { operatorId: req.user.sub });
+  res.json({ message: 'Dispatch started', run });
+}));
+
+router.patch('/dispatch-runs/:id/complete', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
+  const result = await completeDispatchRun(prisma, req.params.id, { operatorId: req.user.sub });
+  res.json({ message: 'Dispatch completed', ...result });
+}));
+
+router.patch('/dispatch-items/:id/complete', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
+  const item = await completeDispatchItem(prisma, req.params.id, req.body, { operatorId: req.user.sub });
+  res.json({ message: 'Dispatch item completed', item });
+}));
+
+router.post('/dispatch-runs/:id/route-trace', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
+  const trace = await recordDispatchRouteTrace(prisma, req.params.id, req.body.route, { operatorId: req.user.sub });
+  res.status(201).json({ message: 'Dispatch route trace saved', trace });
+}));
+
+router.get('/dispatch-runs/:id/reconciliation', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
+  const reconciliation = await getDispatchReconciliation(prisma, req.params.id);
+  res.json(reconciliation);
 }));
 
 module.exports = router;

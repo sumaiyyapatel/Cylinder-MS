@@ -5,6 +5,7 @@ const asyncHandler = require('../middleware/asyncHandler');
 const { AppError } = require('../middleware/errorHandler');
 const { createAuditLog } = require('../services/auditService');
 const { calculateHoldDays } = require('../services/businessRules');
+const { updateCylinderStatus } = require('../services/cylinderStatusService');
 
 const router = express.Router();
 
@@ -182,9 +183,33 @@ router.post('/', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncH
   res.status(201).json(cylinder);
 }));
 
+router.post('/:id/refill', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const updated = await prisma.$transaction(async (tx) => {
+    const cylinder = await updateCylinderStatus(tx, id, 'REFILLED');
+    await createAuditLog(tx, {
+      action: 'CYLINDER_REFILLED',
+      module: 'cylinders',
+      userId: req.user.sub,
+      entityId: String(id),
+      newValue: { cylinderNumber: cylinder.cylinderNumber, status: cylinder.status },
+    });
+    return cylinder;
+  });
+  res.json(updated);
+}));
+
 // PUT /api/cylinders/:id
 router.put('/:id', authenticate, authorize('ADMIN', 'MANAGER', 'OPERATOR'), asyncHandler(async (req, res) => {
-  const cylinder = await prisma.cylinder.update({ where: { id: parseInt(req.params.id, 10) }, data: req.body });
+  const id = parseInt(req.params.id, 10);
+  const { status, ...data } = req.body;
+  const cylinder = await prisma.$transaction(async (tx) => {
+    let updated = await tx.cylinder.update({ where: { id }, data });
+    if (status && status !== updated.status) {
+      updated = await updateCylinderStatus(tx, id, status);
+    }
+    return updated;
+  });
   res.json(cylinder);
 }));
 

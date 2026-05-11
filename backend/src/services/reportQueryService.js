@@ -288,13 +288,15 @@ async function getBookReport(prisma, query = {}, transactionTypes = []) {
 async function getOutstandingReport(prisma) {
   const [bills, ecrs, payments] = await Promise.all([
     prisma.bill.findMany({
+      where: { isDeleted: false, documentStatus: 'FINALIZED' },
       select: { id: true, customerId: true, totalAmount: true, customer: { select: { code: true, name: true, phone: true } } },
     }),
     prisma.ecrRecord.findMany({
-      where: { rentAmount: { gt: 0 } },
+      where: { rentAmount: { gt: 0 }, isDeleted: false, documentStatus: 'FINALIZED' },
       select: { id: true, customerId: true, rentAmount: true, customer: { select: { code: true, name: true, phone: true } } },
     }),
     prisma.payment.findMany({
+      where: { isDeleted: false, documentStatus: 'FINALIZED' },
       select: { customerId: true, billId: true, ecrId: true, amount: true },
     }),
   ]);
@@ -392,7 +394,7 @@ async function getIssueWithoutPurchaseReport(prisma, query = {}) {
 }
 
 async function getSaleReturnReport(prisma, query = {}) {
-  const where = {};
+  const where = { isDeleted: false };
   const customerIdNum = parsePositiveInt(query.customerId);
   if (customerIdNum) where.customerId = customerIdNum;
   Object.assign(where, buildDateRange(query.dateFrom, query.dateTo, 'ecrDate'));
@@ -499,6 +501,7 @@ async function getAgeAnalysisOutstandingReport(prisma, query = {}) {
   const cutoffDate = query.asOfDate ? new Date(query.asOfDate) : new Date();
 
   const bills = await prisma.bill.findMany({
+    where: { isDeleted: false, documentStatus: 'FINALIZED' },
     include: {
       customer: { select: { code: true, name: true } },
     },
@@ -507,7 +510,7 @@ async function getAgeAnalysisOutstandingReport(prisma, query = {}) {
 
   const payments = await prisma.payment.groupBy({
     by: ['billId'],
-    where: { billId: { not: null } },
+    where: { billId: { not: null }, isDeleted: false, documentStatus: 'FINALIZED' },
     _sum: { amount: true },
   });
 

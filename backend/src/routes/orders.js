@@ -88,7 +88,7 @@ function normalizeOrderPayload(payload, { partial = false } = {}) {
 async function getAvailableCylinderCount(tx, { gasCode, ownerCode }) {
   const where = {
     isActive: true,
-    status: 'IN_STOCK',
+    status: { in: ['IN_STOCK', 'REFILLED'] },
   };
   if (gasCode) where.gasCode = gasCode;
   if (ownerCode) where.ownerCode = normalizeOwnerCode(ownerCode);

@@ -12,6 +12,12 @@ async function validateCounts(client = prisma) {
     ledgerEntries,
     holdings,
     movements,
+    stockLedger,
+    inventoryBalances,
+    dailyClosings,
+    domainEvents,
+    dispatchRuns,
+    dispatchItems,
   ] = await Promise.all([
     client.customer.count(),
     client.cylinder.count(),
@@ -23,9 +29,32 @@ async function validateCounts(client = prisma) {
     client.ledgerEntry.count(),
     client.cylinderHolding.count(),
     client.cylinderMovement.count(),
+    client.stockLedger.count(),
+    client.inventoryBalance.count(),
+    client.dailyClosingStock.count(),
+    client.domainEvent.count(),
+    client.dispatchRun.count(),
+    client.dispatchItem.count(),
   ]);
 
-  return { customers, cylinders, bills, transactions, challans, ecrRecords, payments, ledgerEntries, holdings, movements };
+  return {
+    customers,
+    cylinders,
+    bills,
+    transactions,
+    challans,
+    ecrRecords,
+    payments,
+    ledgerEntries,
+    holdings,
+    movements,
+    stockLedger,
+    inventoryBalances,
+    dailyClosings,
+    domainEvents,
+    dispatchRuns,
+    dispatchItems,
+  };
 }
 
 async function main() {

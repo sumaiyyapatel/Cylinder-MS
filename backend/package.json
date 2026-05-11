@@ -15,7 +15,9 @@
     "validate:migration:duplicates": "node scripts/migration/detectDuplicateBills.js",
     "validate:migration:orphans": "node scripts/migration/detectOrphanCylinders.js",
     "validate:migration:holdings": "node scripts/migration/verifyHoldings.js",
-    "backfill:movements": "node scripts/backfill-cylinder-movements.js"
+    "backfill:movements": "node scripts/backfill-cylinder-movements.js",
+    "rebuild:stock": "node scripts/rebuild-stock-ledger.js",
+    "close:stock": "node scripts/close-daily-stock.js"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

@@ -14,6 +14,7 @@ const { updateCylinderStatus, assertNoActiveHolding } = require('./cylinderStatu
 const { createAuditLog } = require('./auditService');
 const { createHolding } = require('./cylinderHoldingService');
 const { MOVEMENT_TYPES, recordCylinderMovement } = require('./cylinderMovementService');
+const { emitDomainEvent } = require('./domainEventService');
 const {
   parseRequiredInt,
   parseOptionalNonNegativeNumber,
@@ -113,7 +114,7 @@ async function createSerializedIssueBill(db, payload = {}, { operatorId = null }
       if (!cylinder) continue;
 
       if (holdingCylinderIds.has(cylinder.id)) blockedWithCustomer.push(number);
-      if (cylinder.status !== 'IN_STOCK') blockedNotInStock.push(number);
+      if (!['IN_STOCK', 'REFILLED'].includes(cylinder.status)) blockedNotInStock.push(number);
       if (normalizeOwnerCode(cylinder.ownerCode) !== expectedOwner) {
         blockedOwnerMismatch.push({ cylinderNumber: number, actualOwner: cylinder.ownerCode });
       }
@@ -140,7 +141,7 @@ async function createSerializedIssueBill(db, payload = {}, { operatorId = null }
       throw new AppError(409, `Cannot issue cylinder(s) already on active holding: ${[...new Set(blockedWithCustomer)].join(', ')}`);
     }
     if (blockedNotInStock.length) {
-      throw new AppError(400, `Cylinder(s) must be IN_STOCK before issue: ${[...new Set(blockedNotInStock)].join(', ')}`);
+      throw new AppError(400, `Cylinder(s) must be IN_STOCK or REFILLED before issue: ${[...new Set(blockedNotInStock)].join(', ')}`);
     }
     if (blockedOwnerMismatch.length) {
       const first = blockedOwnerMismatch[0];
@@ -198,6 +199,8 @@ async function createSerializedIssueBill(db, payload = {}, { operatorId = null }
         taxableAmount: round2(tax.taxableAmount),
         gstAmount: round2(tax.gstAmount),
         totalAmount: round2(tax.totalAmount),
+        documentStatus: 'FINALIZED',
+        finalizedAt: new Date(),
         operatorId,
       },
     });
@@ -320,6 +323,13 @@ async function createSerializedIssueBill(db, payload = {}, { operatorId = null }
         totalCylinders: input.preparedCylinders.length,
         totalAmount: round2(tax.totalAmount),
       },
+    });
+    await emitDomainEvent(tx, {
+      eventType: 'BillFinalized',
+      aggregateType: 'bill',
+      aggregateId: bill.id,
+      payload: { billNumber, customerId: input.customerId, totalAmount: round2(tax.totalAmount) },
+      operatorId,
     });
 
     const createdBill = await tx.bill.findUnique({

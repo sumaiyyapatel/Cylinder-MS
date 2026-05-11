@@ -1,4 +1,6 @@
 const { round2 } = require('./businessRules');
+const { postInventoryMovement } = require('./stockLedgerService');
+const { emitDomainEvent } = require('./domainEventService');
 
 const MOVEMENT_TYPES = {
   ISSUE: 'ISSUE',
@@ -31,7 +33,7 @@ async function recordCylinderMovement(tx, {
   const safeQuantityCum = quantityCum == null ? null : round2(quantityCum);
   if (safeQuantityCum != null && safeQuantityCum < 0) throw new Error('quantityCum cannot be negative');
 
-  return tx.cylinderMovement.create({
+  const movement = await tx.cylinderMovement.create({
     data: {
       cylinderId: cylinderId || null,
       customerId: customerId || null,
@@ -49,6 +51,37 @@ async function recordCylinderMovement(tx, {
       operatorId: operatorId || null,
     },
   });
+
+  if (tx.stockLedger && tx.inventoryBalance && tx.warehouse) {
+    await postInventoryMovement(tx, movement);
+  }
+
+  const eventTypeByMovement = {
+    ISSUE: 'CylinderIssued',
+    RETURN: 'CylinderReturned',
+    TRANSFER: 'CylinderTransferred',
+    HYDRO_TESTED: 'CylinderHydroTested',
+    STATUS_CHANGE: 'CylinderStatusChanged',
+  };
+  if (tx.domainEvent) {
+    await emitDomainEvent(tx, {
+      eventType: eventTypeByMovement[movementType] || 'CylinderMovementRecorded',
+      aggregateType: 'cylinderMovement',
+      aggregateId: movement.id,
+      payload: {
+        cylinderId: movement.cylinderId,
+        customerId: movement.customerId,
+        gasCode: movement.gasCode,
+        ownerCode: movement.ownerCode,
+        movementType: movement.movementType,
+        referenceType: movement.referenceType,
+        referenceNumber: movement.referenceNumber,
+      },
+      operatorId,
+    });
+  }
+
+  return movement;
 }
 
 module.exports = {

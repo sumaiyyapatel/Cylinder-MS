@@ -12,7 +12,7 @@ const router = express.Router();
 // ==============================
 // GET /api/ledger
 // ==============================
-router.get('/', authenticate, asyncHandler(async (req, res) => {
+router.get('/', authenticate, authorize('ADMIN', 'MANAGER', 'ACCOUNTANT'), asyncHandler(async (req, res) => {
     const {
       partyCode,
       dateFrom,

@@ -4,9 +4,10 @@ const { updateCylinderStatus } = require('./cylinderStatusService');
 const { postLedgerEntries } = require('./ledgerPostingService');
 const { createAuditLog } = require('./auditService');
 const { MOVEMENT_TYPES, recordCylinderMovement } = require('./cylinderMovementService');
-const { calculateRent, getEffectiveRate } = require('./rentalService');
 const { generateEcrNumber } = require('./numberingService');
-const { calculateHoldDays, isPocOwner, normalizeOwnerCode } = require('./businessRules');
+const { computeCylinderRental } = require('./rentalEngineService');
+const { cancelDocument } = require('./documentLifecycleService');
+const { emitDomainEvent } = require('./domainEventService');
 const {
   parseOptionalNonNegativeNumber,
   parseDate,
@@ -83,15 +84,7 @@ async function deleteChallanWorkflow(db, challanId, { operatorId = null } = {}) 
       throw new AppError(409, 'Return active challan cylinders before deleting this challan');
     }
 
-    await tx.challan.delete({ where: { id } });
-    await createAuditLog(tx, {
-      action: 'DELETE_CHALLAN',
-      module: 'challans',
-      userId: operatorId,
-      entityId: String(id),
-      oldValue: { challanNumber: challan.challanNumber, status: challan.status },
-      newValue: null,
-    });
+    await cancelDocument(tx, 'challan', id, { operatorId, reason: 'User cancelled challan' });
   });
 }
 
@@ -126,23 +119,21 @@ async function partialReturnChallanWorkflow(db, challanId, payload = {}, { opera
       });
       if (!holding) throw new AppError(400, `No active holding found for cylinder ${cylinderNumber} under this challan/customer`);
 
-      const holdDays = calculateHoldDays(holding.issuedAt, returnDate);
-      const effectiveOwner = normalizeOwnerCode(cylinder.ownerCode);
-      let rentAmount = 0;
-      if (!isPocOwner(effectiveOwner)) {
-        const effectiveRate = await getEffectiveRate(tx, {
-          customerId: challan.customerId,
-          gasCode: cylinder.gasCode,
-          ownerCode: effectiveOwner,
-        });
-        if (effectiveRate) rentAmount = calculateRent(holdDays, effectiveRate);
-      }
+      const rental = await computeCylinderRental(tx, {
+        customerId: challan.customerId,
+        gasCode: cylinder.gasCode,
+        ownerCode: cylinder.ownerCode,
+        issuedAt: holding.issuedAt,
+        returnedAt: returnDate,
+      });
+      const { holdDays, rentAmount } = rental;
+      const effectiveOwner = rental.ownerCode;
 
       await tx.cylinderHolding.update({
         where: { id: holding.id },
         data: { returnedAt: returnDate, holdDays, rentAmount, status: 'RETURNED' },
       });
-      await updateCylinderStatus(tx, cylinder.id, 'IN_STOCK');
+      await updateCylinderStatus(tx, cylinder.id, 'RETURNED');
 
       const linkedTransaction = holding.transactionId
         ? await tx.transaction.findUnique({ where: { id: holding.transactionId }, select: { billNumber: true, quantityCum: true } })
@@ -164,6 +155,8 @@ async function partialReturnChallanWorkflow(db, challanId, payload = {}, { opera
           challanDate: challan.challanDate,
           operatorId,
           quantityCum: linkedTransaction?.quantityCum || null,
+          documentStatus: 'FINALIZED',
+          finalizedAt: new Date(),
         },
       });
 
@@ -177,7 +170,7 @@ async function partialReturnChallanWorkflow(db, challanId, payload = {}, { opera
         movementDate: returnDate,
         quantityCum: linkedTransaction?.quantityCum || null,
         statusBefore: cylinder.status,
-        statusAfter: 'IN_STOCK',
+        statusAfter: 'RETURNED',
         referenceType: 'ECR',
         referenceNumber: ecrNumber,
         operatorId,
@@ -197,7 +190,14 @@ async function partialReturnChallanWorkflow(db, challanId, payload = {}, { opera
         userId: operatorId,
         entityId: String(challan.id),
         oldValue: { holdingStatus: holding.status, cylinderStatus: cylinder.status },
-        newValue: { holdingStatus: 'RETURNED', cylinderStatus: 'IN_STOCK', cylinderNumber, ecrNumber },
+        newValue: { holdingStatus: 'RETURNED', cylinderStatus: 'RETURNED', cylinderNumber, ecrNumber },
+      });
+      await emitDomainEvent(tx, {
+        eventType: 'CylinderReturned',
+        aggregateType: 'ecr',
+        aggregateId: ecrNumber,
+        payload: { challanId: id, challanNumber: challan.challanNumber, cylinderNumber, holdDays, rentAmount },
+        operatorId,
       });
 
       processed.push({ cylinderNumber, ecrNumber, holdDays, rentAmount });

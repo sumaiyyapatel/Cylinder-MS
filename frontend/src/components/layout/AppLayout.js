@@ -11,7 +11,6 @@ import {
   ChevronRight,
   ClipboardList,
   CreditCard,
-  Factory,
   FileText,
   Flame,
   IndianRupee,
@@ -43,6 +42,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { useAuth } from "@/lib/auth";
+import { filterAllowedItems } from "@/lib/iam";
 import { formatDate, getFinancialYear } from "@/lib/utils-format";
 import api from "@/lib/api";
 
@@ -52,7 +52,6 @@ const navGroups = [
     icon: LayoutDashboard,
     items: [
       { to: "/", icon: LayoutDashboard, label: "Dashboard" },
-      { to: "/operations", icon: Factory, label: "Operations Console" },
       { to: "/notifications", icon: BellRing, label: "Notifications", badge: "alerts" },
       { to: "/settings", icon: Settings, label: "Settings" },
       { to: "/users", icon: UserCog, label: "Users" },
@@ -93,7 +92,7 @@ const navGroups = [
     label: "Accounting",
     icon: Landmark,
     items: [
-      { to: "/ledger", icon: BookOpen, label: "Ledger" },
+      { to: "/accounting/ledger", icon: BookOpen, label: "Ledger" },
       { to: "/accounting/cash-voucher", icon: IndianRupee, label: "Cash Voucher" },
       { to: "/accounting/bank-voucher", icon: Landmark, label: "Bank Voucher" },
       { to: "/accounting/payment-receipt", icon: CreditCard, label: "Payment Receipt" },
@@ -104,15 +103,30 @@ const navGroups = [
 ];
 
 const mobileTabs = [
+  { to: "/", label: "Home", icon: LayoutDashboard },
   { to: "/transactions", label: "Bills", icon: ArrowLeftRight },
   { to: "/ecr", label: "ECR", icon: RotateCcw },
-  { to: "/operations", label: "Ops", icon: Factory },
   { to: "/reports/operations", label: "Reports", icon: BarChart3 },
+  { to: "/accounting/payment-receipt", label: "Pay", icon: CreditCard },
+  { to: "/reports/accounting", label: "Reports", icon: BookOpen },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
-function getPageMeta(pathname) {
-  for (const group of navGroups) {
+const standalonePageMeta = [
+  { path: "/operations", title: "Dispatch workflow", group: "Workflow" },
+];
+
+function getPageMeta(pathname, groups) {
+  const standalone = standalonePageMeta.find((item) => pathname === item.path || pathname.startsWith(`${item.path}/`));
+  if (standalone) {
+    return {
+      title: standalone.title,
+      group: standalone.group,
+      href: standalone.path,
+    };
+  }
+
+  for (const group of groups) {
     const match = group.items.find((item) => (item.to === "/" ? pathname === "/" : pathname.startsWith(item.to)));
     if (match) {
       return {
@@ -150,7 +164,13 @@ export default function AppLayout() {
   });
 
   const unresolvedAlertsCount = alertsData?.length || 0;
-  const pageMeta = useMemo(() => getPageMeta(location.pathname), [location.pathname]);
+  const visibleNavGroups = useMemo(() => {
+    return navGroups
+      .map((group) => ({ ...group, items: filterAllowedItems(user?.role, group.items) }))
+      .filter((group) => group.items.length > 0);
+  }, [user?.role]);
+  const visibleMobileTabs = useMemo(() => filterAllowedItems(user?.role, mobileTabs).slice(0, 5), [user?.role]);
+  const pageMeta = useMemo(() => getPageMeta(location.pathname, visibleNavGroups), [location.pathname, visibleNavGroups]);
 
   useEffect(() => {
     api
@@ -255,7 +275,7 @@ export default function AppLayout() {
             </div>
             {!compactSidebar ? (
             <div className="mt-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Operator</div>
+              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Signed in</div>
               <div className="mt-1 truncate text-sm font-semibold text-white">{user?.fullName}</div>
               <div className="text-xs text-slate-300">{user?.role}</div>
             </div>
@@ -273,7 +293,7 @@ export default function AppLayout() {
           </div>
 
           <nav className={`flex-1 overflow-y-auto py-3 ${compactSidebar ? "space-y-2 px-2" : "space-y-2 px-3"}`} aria-label="Main">
-            {navGroups.map((group) => (
+            {visibleNavGroups.map((group) => (
               <section key={group.label}>
                 <button
                   type="button"
@@ -400,7 +420,7 @@ export default function AppLayout() {
 
       <nav className="bottom-tab-bar" aria-label="Mobile shortcuts">
         <div className="mx-auto flex max-w-xl items-center gap-1">
-          {mobileTabs.map((item) => (
+          {visibleMobileTabs.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

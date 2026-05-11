@@ -70,6 +70,11 @@ async function generateEcrNumber(db, forDate = new Date()) {
   return getNextNumber(db, "ecrRecord", "ecrNumber", `ER/${year}/`);
 }
 
+async function generateDispatchNumber(db, forDate = new Date()) {
+  const year = getFinancialYearCode(forDate);
+  return getNextNumber(db, "dispatchRun", "dispatchNumber", `DP/${year}/`);
+}
+
 /**
  * Transfer numbering: TR/25-26/00001
  */
@@ -84,5 +89,6 @@ module.exports = {
   generateLedgerVoucherNumber,
   generateChallanNumber,
   generateEcrNumber,
+  generateDispatchNumber,
   generateTransferNumber,
 };

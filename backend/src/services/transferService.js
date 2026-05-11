@@ -82,9 +82,9 @@ async function createTransfer(tx, opts = {}) {
     }
 
     // Verify cylinders are in stock
-    const notInStock = dbCylinders.filter((c) => c.status !== 'IN_STOCK');
+    const notInStock = dbCylinders.filter((c) => !['IN_STOCK', 'REFILLED'].includes(c.status));
     if (notInStock.length) {
-      throw new AppError(400, `Cylinder(s) must be IN_STOCK for transfer: ${notInStock.map((c) => c.cylinderNumber).join(', ')}`);
+      throw new AppError(400, `Cylinder(s) must be IN_STOCK or REFILLED for transfer: ${notInStock.map((c) => c.cylinderNumber).join(', ')}`);
     }
 
     // Update owner codes to destination

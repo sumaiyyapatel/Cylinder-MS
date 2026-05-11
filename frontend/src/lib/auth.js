@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import api from "@/lib/api";
+import { canAccessPath } from "@/lib/iam";
 
 const AuthContext = createContext(null);
 
@@ -46,8 +47,12 @@ export function AuthProvider({ children }) {
     return user && roles.includes(user.role);
   };
 
+  const hasAccess = (pathname) => {
+    return Boolean(user && canAccessPath(user.role, pathname));
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, hasRole }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, hasRole, hasAccess }}>
       {children}
     </AuthContext.Provider>
   );

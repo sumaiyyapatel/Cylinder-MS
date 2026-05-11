@@ -2,6 +2,7 @@ const prisma = require('../lib/prisma');
 const { deriveNextHydroDueDate } = require('./businessRules');
 const { createAuditLog } = require('./auditService');
 const { MOVEMENT_TYPES, recordCylinderMovement } = require('./cylinderMovementService');
+const { updateCylinderStatus } = require('./cylinderStatusService');
 
 async function markOverdueCylinders(prismaClient = prisma) {
   const today = new Date();
@@ -34,10 +35,11 @@ async function completeHydroTest(txOrClient, cylinderId, testDate = new Date(), 
   const nextDue = deriveNextHydroDueDate({ hydroTestDate: parsedDate });
 
   const before = await client.cylinder.findUnique({ where: { id: cylinderId } });
-  const updated = await client.cylinder.update({
+  await client.cylinder.update({
     where: { id: cylinderId },
-    data: { hydroTestDate: parsedDate, nextTestDue: nextDue, status: 'IN_STOCK' },
+    data: { hydroTestDate: parsedDate, nextTestDue: nextDue },
   });
+  const updated = await updateCylinderStatus(client, cylinderId, 'IN_STOCK');
   await recordCylinderMovement(client, {
     cylinderId,
     gasCode: before?.gasCode || updated.gasCode || null,
